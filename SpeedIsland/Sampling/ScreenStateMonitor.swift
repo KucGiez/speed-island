@@ -1,5 +1,5 @@
-import Darwin
 import Foundation
+import notify
 
 /// Wygaszenie ekranu z NIEOFICJALNEGO powiadomienia Darwin `com.apple.springboard.hasBlankedScreen`.
 ///
