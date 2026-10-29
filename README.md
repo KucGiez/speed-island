@@ -8,7 +8,8 @@ W aplikacji albo przyciskiem na rozwiniętej Wyspie wybierasz, co ma być widocz
 
 | Gdzie | Transfer | Termika | Oba |
 |---|---|---|---|
-| Wyspa, pełna szerokość | `↓ 84 KB/s` · `↑ 12 KB/s` | `❄️` · `OK` | `↓ 84K` · `↑ 12K ❄️` |
+| Wyspa, pełna szerokość | `↓ 84 KB/s` · `↑ 12 KB/s` | `❄️` · `OK` | `↓84K` nad `↑12K` · `❄️` |
+| Wyspa, opcja „Wszystko po jednej stronie” | `↓84K` nad `↑12K`, prawa pusta | – | `❄️` `↓84K` nad `↑12K`, prawa pusta |
 | Jedno pole: widok minimalny obok innej aplikacji, zwężona Wyspa (iOS 27) | `84K` w kolorze kierunku | `❄️` | prędkość, a przy 🔥/💀 ikona |
 | Wyspa rozwinięta, ekran blokady | prędkości, CPU, sumy | ikona, opis, CPU | wszystko |
 | Apple Watch (Smart Stack), CarPlay | ↓/↑ | ikona + CPU | ikona + ↓/↑ |

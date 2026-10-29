@@ -21,6 +21,7 @@ final class SpeedMonitor {
         static let wantsIsland = "wantsIsland"
         static let displayMode = "displayMode"
         static let overheatAlerts = "overheatAlerts"
+        static let oneSide = "oneSide"
     }
 
     private(set) var reading = SpeedAttributes.ContentState.zero
@@ -31,6 +32,7 @@ final class SpeedMonitor {
     private(set) var lastError: String?
     private(set) var displayMode: DisplayMode = .both
     private(set) var overheatAlerts = true
+    private(set) var oneSide = false
 
     @ObservationIgnored private let engine = SamplingEngine()
     @ObservationIgnored private let island = IslandController()
@@ -51,7 +53,9 @@ final class SpeedMonitor {
     private init() {
         displayMode = (defaults.object(forKey: Keys.displayMode) as? Int).flatMap(DisplayMode.init(rawValue:)) ?? .both
         overheatAlerts = (defaults.object(forKey: Keys.overheatAlerts) as? Bool) ?? true
+        oneSide = defaults.bool(forKey: Keys.oneSide)
         reading.mode = displayMode
+        reading.oneSide = oneSide
         locationStatus = keepAlive.status
 
         engine.handler = { [weak self] state in
@@ -137,8 +141,16 @@ final class SpeedMonitor {
         reading.mode = mode
         defaults.set(mode.rawValue, forKey: Keys.displayMode)
         island.adoptExisting()
-        island.setMode(mode)
+        island.setPresentation(mode: mode, oneSide: oneSide)
         updateInterval()
+    }
+
+    func setOneSide(_ enabled: Bool) {
+        oneSide = enabled
+        reading.oneSide = enabled
+        defaults.set(enabled, forKey: Keys.oneSide)
+        island.adoptExisting()
+        island.setPresentation(mode: displayMode, oneSide: enabled)
     }
 
     func setOverheatAlerts(_ enabled: Bool) {
@@ -161,6 +173,7 @@ final class SpeedMonitor {
             initial.downTotal = 0
             initial.upTotal = 0
             initial.mode = displayMode
+            initial.oneSide = oneSide
             try island.start(initial: initial)
             islandActive = true
             engine.start()
@@ -204,6 +217,7 @@ final class SpeedMonitor {
     private func handle(_ sample: SpeedAttributes.ContentState) {
         var state = sample
         state.mode = displayMode
+        state.oneSide = oneSide
         sequence += 1
         buffer.append(SpeedPoint(id: sequence, down: state.down, up: state.up))
         if buffer.count > Self.historyLength {

@@ -75,7 +75,10 @@ private struct LimitedWidthReader27<Content: View>: View {
     var body: some View { content(limited) }
 }
 
-/// Pełna szerokość:  Transfer `↓ 84 KB/s`, Termika `❄️`, Oba `↓ 84K`.
+/// Pełna szerokość (lewa strona kamery):
+/// - Transfer: `↓ 84 KB/s`; przy „jednej stronie” stos `↓84K / ↑12K`
+/// - Termika: `❄️`
+/// - Oba: stos `↓84K / ↑12K`; przy „jednej stronie” `❄️` + stos
 /// Zwężona: jedno pole mieszczące się w kółku 28 pt.
 private struct CompactLeading: View {
     let state: SpeedAttributes.ContentState
@@ -87,30 +90,44 @@ private struct CompactLeading: View {
             } else {
                 switch state.mode {
                 case .transfer:
-                    SpeedLabel(symbol: "arrow.down", value: state.down, tint: .green, short: false)
+                    if state.oneSide {
+                        SpeedStack(state: state)
+                    } else {
+                        SpeedLabel(symbol: "arrow.down", value: state.down, tint: .green)
+                    }
                 case .thermal:
                     ThermalIcon(raw: state.thermal, size: 17)
                 case .both:
-                    SpeedLabel(symbol: "arrow.down", value: state.down, tint: .green, short: true)
+                    if state.oneSide {
+                        HStack(spacing: 5) {
+                            ThermalIcon(raw: state.thermal, size: 17)
+                            SpeedStack(state: state)
+                        }
+                    } else {
+                        SpeedStack(state: state)
+                    }
                 }
             }
         }
     }
 }
 
-/// Pełna szerokość: Transfer `↑ 12 KB/s`, Termika `OK`, Oba `↑ 12K ❄️` (termika przy baterii).
-/// Zwężona: pusty widok, który system automatycznie ukrywa.
+/// Pełna szerokość (prawa strona kamery, przy baterii):
+/// - Transfer: `↑ 12 KB/s`; przy „jednej stronie” pusto
+/// - Termika: `OK`
+/// - Oba: `❄️`; przy „jednej stronie” pusto
+/// Pusty widok system ukrywa, więc Wyspa rośnie tylko w lewo.
 private struct CompactTrailing: View {
     let state: SpeedAttributes.ContentState
 
     var body: some View {
         LimitedWidthReader { limited in
-            if limited {
+            if limited || (state.oneSide && state.mode != .thermal) {
                 EmptyView()
             } else {
                 switch state.mode {
                 case .transfer:
-                    SpeedLabel(symbol: "arrow.up", value: state.up, tint: .orange, short: false)
+                    SpeedLabel(symbol: "arrow.up", value: state.up, tint: .orange)
                 case .thermal:
                     Text(thermalLabel(state.thermal))
                         .font(.system(size: 14, weight: .semibold, design: .rounded))
@@ -118,13 +135,41 @@ private struct CompactTrailing: View {
                         .lineLimit(1)
                         .minimumScaleFactor(0.6)
                 case .both:
-                    HStack(spacing: 4) {
-                        SpeedLabel(symbol: "arrow.up", value: state.up, tint: .orange, short: true)
-                        ThermalIcon(raw: state.thermal, size: 14)
-                    }
+                    ThermalIcon(raw: state.thermal, size: 18)
                 }
             }
         }
+    }
+}
+
+/// Oba kierunki jeden pod drugim: dwie linie po 12 pt mieszczą się w wysokości kompaktu (~37 pt).
+private struct SpeedStack: View {
+    let state: SpeedAttributes.ContentState
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: -1) {
+            StackLine(symbol: "arrow.down", value: state.down, tint: .green)
+            StackLine(symbol: "arrow.up", value: state.up, tint: .orange)
+        }
+    }
+}
+
+private struct StackLine: View {
+    let symbol: String
+    let value: Double
+    let tint: Color
+
+    var body: some View {
+        HStack(alignment: .firstTextBaseline, spacing: 2) {
+            Image(systemName: symbol)
+                .font(.system(size: 8, weight: .heavy))
+                .foregroundStyle(tint)
+            Text(formatSpeedMinimal(value))
+                .font(.system(size: 12, weight: .semibold, design: .rounded).monospacedDigit())
+                .contentTransition(.numericText(value: value))
+        }
+        .lineLimit(1)
+        .minimumScaleFactor(0.7)
     }
 }
 
@@ -148,31 +193,24 @@ private struct SingleSlotView: View {
     }
 }
 
-/// Strzałka + liczba + jednostka. `short` = „84K” (tryb Oba), inaczej „84 KB/s”.
+/// Strzałka + liczba + jednostka, np. „↓ 84 KB/s”.
 private struct SpeedLabel: View {
     let symbol: String
     let value: Double
     let tint: Color
-    let short: Bool
 
     var body: some View {
+        let parts = speedCompactParts(value)
         HStack(alignment: .firstTextBaseline, spacing: 2) {
             Image(systemName: symbol)
                 .font(.system(size: 10, weight: .bold))
                 .foregroundStyle(tint)
-            if short {
-                Text(formatSpeedMinimal(value))
-                    .font(.system(size: 14, weight: .semibold, design: .rounded).monospacedDigit())
-                    .contentTransition(.numericText(value: value))
-            } else {
-                let parts = speedCompactParts(value)
-                Text(parts.number)
-                    .font(.system(size: 14, weight: .semibold, design: .rounded).monospacedDigit())
-                    .contentTransition(.numericText(value: value))
-                Text(parts.unit)
-                    .font(.system(size: 9, weight: .medium))
-                    .foregroundStyle(Color.secondary)
-            }
+            Text(parts.number)
+                .font(.system(size: 14, weight: .semibold, design: .rounded).monospacedDigit())
+                .contentTransition(.numericText(value: value))
+            Text(parts.unit)
+                .font(.system(size: 9, weight: .medium))
+                .foregroundStyle(Color.secondary)
         }
         .lineLimit(1)
         .minimumScaleFactor(0.6)
@@ -375,8 +413,8 @@ private struct SmallView: View {
             }
             if state.mode != .thermal {
                 VStack(alignment: .leading, spacing: 2) {
-                    SpeedLabel(symbol: "arrow.down", value: state.down, tint: .green, short: false)
-                    SpeedLabel(symbol: "arrow.up", value: state.up, tint: .orange, short: false)
+                    SpeedLabel(symbol: "arrow.down", value: state.down, tint: .green)
+                    SpeedLabel(symbol: "arrow.up", value: state.up, tint: .orange)
                 }
             } else {
                 VStack(alignment: .leading, spacing: 2) {

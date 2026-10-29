@@ -20,8 +20,10 @@ struct SpeedAttributes: ActivityAttributes {
         var upTotal: UInt64
         /// Co pokazać na Wyspie.
         var mode: DisplayMode
+        /// Kompakt tylko po lewej stronie kamery (prawa pusta). Dotyczy trybów Transfer i Oba.
+        var oneSide: Bool
 
-        static let zero = ContentState(down: 0, up: 0, cpu: nil, thermal: 0, downTotal: 0, upTotal: 0, mode: .both)
+        static let zero = ContentState(down: 0, up: 0, cpu: nil, thermal: 0, downTotal: 0, upTotal: 0, mode: .both, oneSide: false)
     }
 
     /// Początek sesji (do podpisu „od 12:03”).
