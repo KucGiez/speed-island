@@ -2,7 +2,7 @@ import SwiftUI
 
 @main
 struct SpeedIslandApp: App {
-    @State private var monitor = SpeedMonitor()
+    private let monitor = SpeedMonitor.shared
     @Environment(\.scenePhase) private var scenePhase
 
     var body: some Scene {

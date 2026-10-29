@@ -58,6 +58,14 @@ final class SamplingEngine: @unchecked Sendable {
         }
     }
 
+    /// Natychmiastowa próbka poza harmonogramem (np. po zmianie stanu termicznego).
+    func sampleNow() {
+        queue.async { [self] in
+            guard timer != nil else { return }
+            tick()
+        }
+    }
+
     /// 10% tolerancji pozwala systemowi łączyć wybudzenia z innymi (oszczędność energii).
     private func schedule(_ t: DispatchSourceTimer) {
         t.schedule(
@@ -83,7 +91,8 @@ final class SamplingEngine: @unchecked Sendable {
             cpu: cpu.sample(),
             thermal: ProcessInfo.processInfo.thermalState.rawValue,
             downTotal: downTotal,
-            upTotal: upTotal
+            upTotal: upTotal,
+            mode: .both // tryb nadaje SpeedMonitor
         )
         handler?(state)
     }

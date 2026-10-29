@@ -188,6 +188,29 @@ private struct IslandCard: View {
                 .tint(monitor.islandActive ? Color.red : Color.accentColor)
                 .controlSize(.large)
 
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("Na Wyspie")
+                        .font(.subheadline.weight(.medium))
+                        .foregroundStyle(.secondary)
+                    Picker("Na Wyspie", selection: Binding(
+                        get: { monitor.displayMode },
+                        set: { monitor.setDisplayMode($0) }
+                    )) {
+                        ForEach(DisplayMode.allCases) { mode in
+                            Text(mode.title).tag(mode)
+                        }
+                    }
+                    .pickerStyle(.segmented)
+                }
+
+                Toggle(isOn: Binding(
+                    get: { monitor.overheatAlerts },
+                    set: { monitor.setOverheatAlerts($0) }
+                )) {
+                    Label("Alarm przy przegrzaniu 🔥 💀", systemImage: "bell.badge")
+                        .font(.subheadline)
+                }
+
                 backgroundStatus
 
                 if !monitor.activitiesEnabled {
@@ -203,7 +226,7 @@ private struct IslandCard: View {
                     Notice(symbol: "xmark.octagon.fill", tint: .red, text: error)
                 }
 
-                Text("iOS nie udostępnia aplikacjom temperatury w °C, dlatego pokazujemy stan termiczny systemu. Live Activity działa maksymalnie 8 godzin; po otwarciu aplikacji wraca sama.")
+                Text("Termika: ❄️ OK, 🌴 ciepło, 🔥 gorąco, 💀 krytycznie (iOS nie podaje °C). Gdy działają aktywności innych aplikacji, SpeedIsland pokazuje jedno pole: prędkość, a przy przegrzaniu ikonę. Live Activity trwa maksymalnie 8 godzin; po otwarciu aplikacji wraca sama.")
                     .font(.footnote)
                     .foregroundStyle(.secondary)
             }

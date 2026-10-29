@@ -7,7 +7,8 @@ on:
 
 jobs:
   ipa:
-    runs-on: macos-latest
+    # Obraz z Xcode 27 i SDK iOS 27 (isDynamicIslandLimitedInWidth).
+    runs-on: xcode-27
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4

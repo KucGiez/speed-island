@@ -3,7 +3,7 @@ import Foundation
 
 /// Wspólne atrybuty Live Activity (kompilowane w aplikacji i w rozszerzeniu widgetu).
 struct SpeedAttributes: ActivityAttributes {
-    /// Jedna próbka pomiaru. Służy też jako stan Live Activity.
+    /// Jedna próbka pomiaru plus wybrany tryb. Służy też jako stan Live Activity (limit 4 KB z dużym zapasem).
     struct ContentState: Codable, Hashable {
         /// Prędkość pobierania [B/s].
         var down: Double
@@ -18,8 +18,10 @@ struct SpeedAttributes: ActivityAttributes {
         var downTotal: UInt64
         /// Bajty wysłane od startu sesji.
         var upTotal: UInt64
+        /// Co pokazać na Wyspie.
+        var mode: DisplayMode
 
-        static let zero = ContentState(down: 0, up: 0, cpu: nil, thermal: 0, downTotal: 0, upTotal: 0)
+        static let zero = ContentState(down: 0, up: 0, cpu: nil, thermal: 0, downTotal: 0, upTotal: 0, mode: .both)
     }
 
     /// Początek sesji (do podpisu „od 12:03”).

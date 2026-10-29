@@ -1,4 +1,5 @@
 import ActivityKit
+import AppIntents
 import SwiftUI
 import WidgetKit
 
@@ -6,8 +7,11 @@ import WidgetKit
 struct SpeedIslandWidgetBundle: WidgetBundle {
     var body: some Widget {
         SpeedLiveActivity()
+        StartIslandControl()
     }
 }
+
+// MARK: - Live Activity
 
 struct SpeedLiveActivity: Widget {
     var body: some WidgetConfiguration {
@@ -20,57 +24,210 @@ struct SpeedLiveActivity: Widget {
             let stale = context.isStale
             return DynamicIsland {
                 DynamicIslandExpandedRegion(.leading) {
-                    ExpandedSpeed(title: "Pobieranie", symbol: "arrow.down", value: state.down, tint: .green, alignment: .leading)
-                        .opacity(stale ? 0.5 : 1)
+                    ExpandedLeading(state: state)
+                        .dimmed(stale)
                 }
                 DynamicIslandExpandedRegion(.trailing) {
-                    ExpandedSpeed(title: "Wysyłanie", symbol: "arrow.up", value: state.up, tint: .orange, alignment: .trailing)
-                        .opacity(stale ? 0.5 : 1)
+                    ExpandedTrailing(state: state)
+                        .dimmed(stale)
                 }
                 DynamicIslandExpandedRegion(.bottom) {
-                    DetailsRow(state: state, isStale: stale)
-                        .padding(.top, 4)
+                    ExpandedBottom(state: state, isStale: stale)
                 }
             } compactLeading: {
-                CompactSpeed(symbol: "arrow.down", value: state.down, tint: .green)
-                    .opacity(stale ? 0.5 : 1)
+                CompactLeading(state: state)
+                    .dimmed(stale)
             } compactTrailing: {
-                CompactSpeed(symbol: "arrow.up", value: state.up, tint: .orange)
-                    .opacity(stale ? 0.5 : 1)
+                CompactTrailing(state: state)
+                    .dimmed(stale)
             } minimal: {
-                Text(formatSpeedMinimal(max(state.down, state.up)))
-                    .font(.system(size: 11, weight: .semibold).monospacedDigit())
-                    .minimumScaleFactor(0.6)
-                    .foregroundStyle(stale ? Color.secondary : Color.green)
+                SingleSlotView(state: state)
+                    .dimmed(stale)
             }
-            .keylineTint(Color.green)
+            .keylineTint(state.isHot ? thermalColor(state.thermal) : Color.green)
+        }
+        // Własny układ dla Apple Watch (Smart Stack) i CarPlay zamiast złożonego kompaktu.
+        .supplementalActivityFamilies([.small])
+    }
+}
+
+// MARK: - Kompakt i widok minimalny
+
+/// iOS 27: Wyspa bywa zwężona (poziomo, iPhone 18 Pro z drugą aktywnością, iPhone Duo).
+/// Na starszych systemach zawsze pełna szerokość.
+private struct LimitedWidthReader<Content: View>: View {
+    @ViewBuilder let content: (Bool) -> Content
+
+    var body: some View {
+        if #available(iOS 27.0, *) {
+            LimitedWidthReader27(content: content)
+        } else {
+            content(false)
         }
     }
 }
 
-// MARK: - Widoki
+@available(iOS 27.0, *)
+private struct LimitedWidthReader27<Content: View>: View {
+    @Environment(\.isDynamicIslandLimitedInWidth) private var limited
+    let content: (Bool) -> Content
 
-/// Kompaktowa połówka Wyspy: strzałka + liczba + mała jednostka.
-private struct CompactSpeed: View {
+    var body: some View { content(limited) }
+}
+
+/// Pełna szerokość:  Transfer `↓ 84 KB/s`, Termika `❄️`, Oba `↓ 84K`.
+/// Zwężona: jedno pole mieszczące się w kółku 28 pt.
+private struct CompactLeading: View {
+    let state: SpeedAttributes.ContentState
+
+    var body: some View {
+        LimitedWidthReader { limited in
+            if limited {
+                SingleSlotView(state: state)
+            } else {
+                switch state.mode {
+                case .transfer:
+                    SpeedLabel(symbol: "arrow.down", value: state.down, tint: .green, short: false)
+                case .thermal:
+                    ThermalIcon(raw: state.thermal, size: 17)
+                case .both:
+                    SpeedLabel(symbol: "arrow.down", value: state.down, tint: .green, short: true)
+                }
+            }
+        }
+    }
+}
+
+/// Pełna szerokość: Transfer `↑ 12 KB/s`, Termika `OK`, Oba `↑ 12K ❄️` (termika przy baterii).
+/// Zwężona: pusty widok, który system automatycznie ukrywa.
+private struct CompactTrailing: View {
+    let state: SpeedAttributes.ContentState
+
+    var body: some View {
+        LimitedWidthReader { limited in
+            if limited {
+                EmptyView()
+            } else {
+                switch state.mode {
+                case .transfer:
+                    SpeedLabel(symbol: "arrow.up", value: state.up, tint: .orange, short: false)
+                case .thermal:
+                    Text(thermalLabel(state.thermal))
+                        .font(.system(size: 14, weight: .semibold, design: .rounded))
+                        .foregroundStyle(thermalColor(state.thermal))
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.6)
+                case .both:
+                    HStack(spacing: 4) {
+                        SpeedLabel(symbol: "arrow.up", value: state.up, tint: .orange, short: true)
+                        ThermalIcon(raw: state.thermal, size: 14)
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// Jedno pole (widok minimalny obok innych aplikacji, zwężona Wyspa): ikona termiki
+/// albo przeważająca prędkość w kolorze kierunku (zielony ↓, pomarańczowy ↑).
+private struct SingleSlotView: View {
+    let state: SpeedAttributes.ContentState
+
+    var body: some View {
+        switch state.singleSlot {
+        case .thermal:
+            ThermalIcon(raw: state.thermal, size: 16)
+        case .speed:
+            Text(formatSpeedMinimal(state.dominantSpeed))
+                .font(.system(size: 11, weight: .bold, design: .rounded).monospacedDigit())
+                .foregroundStyle(state.dominantIsDownload ? Color.green : Color.orange)
+                .contentTransition(.numericText(value: state.dominantSpeed))
+                .lineLimit(1)
+                .minimumScaleFactor(0.5)
+        }
+    }
+}
+
+/// Strzałka + liczba + jednostka. `short` = „84K” (tryb Oba), inaczej „84 KB/s”.
+private struct SpeedLabel: View {
     let symbol: String
     let value: Double
     let tint: Color
+    let short: Bool
 
     var body: some View {
-        let parts = speedCompactParts(value)
         HStack(alignment: .firstTextBaseline, spacing: 2) {
             Image(systemName: symbol)
                 .font(.system(size: 10, weight: .bold))
                 .foregroundStyle(tint)
-            Text(parts.number)
-                .font(.system(size: 14, weight: .semibold, design: .rounded).monospacedDigit())
-                .contentTransition(.numericText(value: value))
-            Text(parts.unit)
-                .font(.system(size: 9, weight: .medium))
-                .foregroundStyle(Color.secondary)
+            if short {
+                Text(formatSpeedMinimal(value))
+                    .font(.system(size: 14, weight: .semibold, design: .rounded).monospacedDigit())
+                    .contentTransition(.numericText(value: value))
+            } else {
+                let parts = speedCompactParts(value)
+                Text(parts.number)
+                    .font(.system(size: 14, weight: .semibold, design: .rounded).monospacedDigit())
+                    .contentTransition(.numericText(value: value))
+                Text(parts.unit)
+                    .font(.system(size: 9, weight: .medium))
+                    .foregroundStyle(Color.secondary)
+            }
         }
         .lineLimit(1)
         .minimumScaleFactor(0.6)
+    }
+}
+
+private struct ThermalIcon: View {
+    let raw: Int
+    let size: CGFloat
+
+    var body: some View {
+        Text(thermalIcon(raw))
+            .font(.system(size: size))
+            .contentTransition(.opacity)
+    }
+}
+
+// MARK: - Rozwinięta Wyspa
+
+private struct ExpandedLeading: View {
+    let state: SpeedAttributes.ContentState
+
+    var body: some View {
+        switch state.mode {
+        case .transfer, .both:
+            ExpandedSpeed(title: "Pobieranie", symbol: "arrow.down", value: state.down, tint: .green, alignment: .leading)
+        case .thermal:
+            HStack(spacing: 6) {
+                ThermalIcon(raw: state.thermal, size: 26)
+                VStack(alignment: .leading, spacing: 0) {
+                    Text("Termika").font(.caption2.weight(.medium)).foregroundStyle(Color.secondary)
+                    Text(thermalLabel(state.thermal))
+                        .font(.system(.title3, design: .rounded).weight(.semibold))
+                        .foregroundStyle(thermalColor(state.thermal))
+                }
+            }
+        }
+    }
+}
+
+private struct ExpandedTrailing: View {
+    let state: SpeedAttributes.ContentState
+
+    var body: some View {
+        switch state.mode {
+        case .transfer, .both:
+            ExpandedSpeed(title: "Wysyłanie", symbol: "arrow.up", value: state.up, tint: .orange, alignment: .trailing)
+        case .thermal:
+            VStack(alignment: .trailing, spacing: 0) {
+                Label("CPU", systemImage: "cpu").font(.caption2.weight(.medium)).foregroundStyle(Color.blue)
+                Text(formatCPU(state.cpu))
+                    .font(.system(.title3, design: .rounded).weight(.semibold).monospacedDigit())
+                    .contentTransition(.numericText())
+            }
+        }
     }
 }
 
@@ -95,6 +252,22 @@ private struct ExpandedSpeed: View {
     }
 }
 
+private struct ExpandedBottom: View {
+    let state: SpeedAttributes.ContentState
+    let isStale: Bool
+
+    var body: some View {
+        VStack(spacing: 8) {
+            DetailsRow(state: state, isStale: isStale)
+            if !isStale {
+                ModeButton(mode: state.mode)
+            }
+        }
+        .padding(.top, 4)
+    }
+}
+
+/// Szczegóły zależne od trybu; przy nieaktualnych danych jasny komunikat zamiast starych liczb.
 private struct DetailsRow: View {
     let state: SpeedAttributes.ContentState
     let isStale: Bool
@@ -105,11 +278,21 @@ private struct DetailsRow: View {
                 Label("Wstrzymane – otwórz aplikację", systemImage: "pause.circle.fill")
                     .foregroundStyle(Color.secondary)
             } else {
-                Label(formatCPU(state.cpu), systemImage: "cpu")
-                Text(thermalIcon(state.thermal))
-                Spacer(minLength: 0)
-                Text("↓ \(formatBytes(state.downTotal))  ↑ \(formatBytes(state.upTotal))")
-                    .foregroundStyle(Color.secondary)
+                switch state.mode {
+                case .transfer:
+                    Label(formatCPU(state.cpu), systemImage: "cpu")
+                    Spacer(minLength: 0)
+                    Totals(state: state)
+                case .thermal:
+                    Text("Stan termiczny systemu – iOS nie podaje °C")
+                        .foregroundStyle(Color.secondary)
+                case .both:
+                    Label(formatCPU(state.cpu), systemImage: "cpu")
+                    Text("\(thermalIcon(state.thermal)) \(thermalLabel(state.thermal))")
+                        .foregroundStyle(thermalColor(state.thermal))
+                    Spacer(minLength: 0)
+                    Totals(state: state)
+                }
             }
         }
         .font(.caption.monospacedDigit())
@@ -118,25 +301,117 @@ private struct DetailsRow: View {
     }
 }
 
+private struct Totals: View {
+    let state: SpeedAttributes.ContentState
+
+    var body: some View {
+        Text("↓ \(formatBytes(state.downTotal))  ↑ \(formatBytes(state.upTotal))")
+            .foregroundStyle(Color.secondary)
+    }
+}
+
+/// Jedyny element interaktywny (zalecenie HIG): przełącza widok bez otwierania aplikacji.
+private struct ModeButton: View {
+    let mode: DisplayMode
+
+    var body: some View {
+        Button(intent: CycleDisplayModeIntent()) {
+            Label("Widok: \(mode.title) → \(mode.next.title)", systemImage: "arrow.triangle.2.circlepath")
+                .font(.caption.weight(.semibold))
+                .frame(maxWidth: .infinity)
+        }
+        .buttonStyle(.bordered)
+        .tint(Color.green)
+    }
+}
+
+// MARK: - Ekran blokady, StandBy, Apple Watch, CarPlay
+
 private struct LockScreenView: View {
+    @Environment(\.activityFamily) private var family
     let state: SpeedAttributes.ContentState
     let startedAt: Date
     let isStale: Bool
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack {
-                ExpandedSpeed(title: "Pobieranie", symbol: "arrow.down", value: state.down, tint: .green, alignment: .leading)
-                Spacer()
-                ExpandedSpeed(title: "Wysyłanie", symbol: "arrow.up", value: state.up, tint: .orange, alignment: .trailing)
+        if family == .small {
+            SmallView(state: state, isStale: isStale)
+        } else {
+            VStack(alignment: .leading, spacing: 10) {
+                HStack(alignment: .top) {
+                    ExpandedLeading(state: state)
+                    Spacer()
+                    ExpandedTrailing(state: state)
+                }
+                .dimmed(isStale)
+                DetailsRow(state: state, isStale: isStale)
+                HStack {
+                    Text("Sesja od \(startedAt.formatted(date: .omitted, time: .shortened))")
+                        .font(.caption2)
+                        .foregroundStyle(Color.secondary)
+                    Spacer()
+                    if !isStale {
+                        ModeButton(mode: state.mode)
+                            .fixedSize()
+                    }
+                }
             }
-            .opacity(isStale ? 0.5 : 1)
-            DetailsRow(state: state, isStale: isStale)
-            Text("Sesja od \(startedAt.formatted(date: .omitted, time: .shortened))")
-                .font(.caption2)
-                .foregroundStyle(Color.secondary)
+            .foregroundStyle(Color.white)
+            .padding(14)
         }
-        .foregroundStyle(Color.white)
-        .padding(16)
+    }
+}
+
+/// Apple Watch Smart Stack i CarPlay: duże, czytelne wartości, bez przycisków
+/// (CarPlay wyłącza elementy interaktywne).
+private struct SmallView: View {
+    let state: SpeedAttributes.ContentState
+    let isStale: Bool
+
+    var body: some View {
+        HStack(spacing: 10) {
+            if state.mode != .transfer {
+                ThermalIcon(raw: state.thermal, size: 26)
+            }
+            if state.mode != .thermal {
+                VStack(alignment: .leading, spacing: 2) {
+                    SpeedLabel(symbol: "arrow.down", value: state.down, tint: .green, short: false)
+                    SpeedLabel(symbol: "arrow.up", value: state.up, tint: .orange, short: false)
+                }
+            } else {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(thermalLabel(state.thermal))
+                        .font(.headline)
+                        .foregroundStyle(thermalColor(state.thermal))
+                    Text("CPU \(formatCPU(state.cpu))")
+                        .font(.caption.monospacedDigit())
+                        .foregroundStyle(Color.secondary)
+                }
+            }
+            Spacer(minLength: 0)
+        }
+        .dimmed(isStale)
+        .padding(8)
+    }
+}
+
+private extension View {
+    func dimmed(_ isStale: Bool) -> some View {
+        opacity(isStale ? 0.5 : 1)
+    }
+}
+
+// MARK: - Centrum sterowania
+
+/// Przycisk w Centrum sterowania (i na ekranie blokady / przycisku czynności przez kontrolki iOS 18+).
+struct StartIslandControl: ControlWidget {
+    var body: some ControlWidgetConfiguration {
+        StaticControlConfiguration(kind: "SpeedIsland.Start") {
+            ControlWidgetButton(action: StartIslandIntent()) {
+                Label("SpeedIsland", systemImage: "gauge.with.dots.needle.67percent")
+            }
+        }
+        .displayName("Licznik na Wyspie")
+        .description("Uruchamia licznik transferu i termiki na Dynamicznej Wyspie.")
     }
 }

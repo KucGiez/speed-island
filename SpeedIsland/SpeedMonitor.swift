@@ -9,12 +9,19 @@ struct SpeedPoint: Identifiable {
     let up: Double
 }
 
-/// Stan aplikacji: łączy silnik próbkowania, Live Activity i pracę w tle.
+/// Stan aplikacji: łączy silnik próbkowania, Live Activity, pracę w tle i intencje (Wyspa, skróty, Centrum sterowania).
 @MainActor
 @Observable
 final class SpeedMonitor {
+    /// Jeden egzemplarz na proces: intencje mogą przyjść, zanim powstanie jakakolwiek scena.
+    static let shared = SpeedMonitor()
     static let historyLength = 60
-    private static let wantsIslandKey = "wantsIsland"
+
+    private enum Keys {
+        static let wantsIsland = "wantsIsland"
+        static let displayMode = "displayMode"
+        static let overheatAlerts = "overheatAlerts"
+    }
 
     private(set) var reading = SpeedAttributes.ContentState.zero
     private(set) var history: [SpeedPoint] = []
@@ -22,23 +29,31 @@ final class SpeedMonitor {
     private(set) var activitiesEnabled = true
     private(set) var locationStatus: CLAuthorizationStatus = .notDetermined
     private(set) var lastError: String?
+    private(set) var displayMode: DisplayMode = .both
+    private(set) var overheatAlerts = true
 
     @ObservationIgnored private let engine = SamplingEngine()
     @ObservationIgnored private let island = IslandController()
     @ObservationIgnored private let keepAlive = BackgroundKeepAlive()
+    @ObservationIgnored private let defaults = UserDefaults.standard
     @ObservationIgnored private var buffer: [SpeedPoint] = []
     @ObservationIgnored private var sequence = 0
     @ObservationIgnored private var uiVisible = false
-    @ObservationIgnored private var powerObserver: NSObjectProtocol?
+    @ObservationIgnored private var observers: [NSObjectProtocol] = []
 
     /// Czy użytkownik chce mieć licznik na Wyspie. Po limicie 8 h albo zamknięciu aplikacji
     /// licznik wraca sam przy następnym otwarciu; wyłącza go tylko użytkownik.
     private var wantsIsland: Bool {
-        get { UserDefaults.standard.bool(forKey: Self.wantsIslandKey) }
-        set { UserDefaults.standard.set(newValue, forKey: Self.wantsIslandKey) }
+        get { defaults.bool(forKey: Keys.wantsIsland) }
+        set { defaults.set(newValue, forKey: Keys.wantsIsland) }
     }
 
-    init() {
+    private init() {
+        displayMode = (defaults.object(forKey: Keys.displayMode) as? Int).flatMap(DisplayMode.init(rawValue:)) ?? .both
+        overheatAlerts = (defaults.object(forKey: Keys.overheatAlerts) as? Bool) ?? true
+        reading.mode = displayMode
+        locationStatus = keepAlive.status
+
         engine.handler = { [weak self] state in
             Task { @MainActor in self?.handle(state) }
         }
@@ -48,13 +63,20 @@ final class SpeedMonitor {
         keepAlive.onAuthorizationChange = { [weak self] status in
             self?.authorizationChanged(status)
         }
-        locationStatus = keepAlive.status
-        powerObserver = NotificationCenter.default.addObserver(
+
+        let center = NotificationCenter.default
+        observers.append(center.addObserver(
             forName: .NSProcessInfoPowerStateDidChange, object: nil, queue: .main
         ) { [weak self] _ in
-            Task { @MainActor in self?.applyPowerMode() }
-        }
-        applyPowerMode()
+            Task { @MainActor in self?.updateInterval() }
+        })
+        // Zmiana termiki trafia na Wyspę od razu, także przy rzadkim próbkowaniu w trybie „Termika”.
+        observers.append(center.addObserver(
+            forName: ProcessInfo.thermalStateDidChangeNotification, object: nil, queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor in self?.engine.sampleNow() }
+        })
+        updateInterval()
     }
 
     // MARK: - Cykl życia
@@ -68,6 +90,7 @@ final class SpeedMonitor {
             locationStatus = keepAlive.status
             island.adoptExisting()
             islandActive = island.isActive
+            updateInterval()
             engine.start()
             if islandActive {
                 ensureBackgroundMode()
@@ -76,6 +99,7 @@ final class SpeedMonitor {
             }
         case .background:
             uiVisible = false
+            updateInterval()
             // Bez Wyspy w tle nic nie liczymy: zero kosztu energii.
             if !island.isActive { engine.stop() }
         default:
@@ -83,20 +107,43 @@ final class SpeedMonitor {
         }
     }
 
-    // MARK: - Akcje użytkownika
+    // MARK: - Akcje użytkownika (aplikacja, przyciski Wyspy, skróty, Centrum sterowania)
 
     func toggleIsland() {
-        if islandActive {
-            wantsIsland = false
-            stopIsland()
-        } else {
-            wantsIsland = true
-            startIsland()
-        }
+        islandActive ? requestStop() : requestStart()
     }
 
-    func requestBackgroundPermission() {
-        keepAlive.requestAuthorization()
+    /// Z intencji ze `openAppWhenRun`: aplikacja zaraz będzie aktywna, a start nastąpi w `scenePhaseChanged`.
+    func requestStart() {
+        wantsIsland = true
+        if uiVisible, !island.isActive { startIsland() }
+    }
+
+    func requestStop() {
+        wantsIsland = false
+        island.adoptExisting()
+        island.stop()
+        islandActive = false
+        keepAlive.stop()
+        if !uiVisible { engine.stop() }
+    }
+
+    func cycleDisplayMode() {
+        setDisplayMode(displayMode.next)
+    }
+
+    func setDisplayMode(_ mode: DisplayMode) {
+        displayMode = mode
+        reading.mode = mode
+        defaults.set(mode.rawValue, forKey: Keys.displayMode)
+        island.adoptExisting()
+        island.setMode(mode)
+        updateInterval()
+    }
+
+    func setOverheatAlerts(_ enabled: Bool) {
+        overheatAlerts = enabled
+        defaults.set(enabled, forKey: Keys.overheatAlerts)
     }
 
     // MARK: - Wewnętrzne
@@ -113,6 +160,7 @@ final class SpeedMonitor {
             var initial = reading
             initial.downTotal = 0
             initial.upTotal = 0
+            initial.mode = displayMode
             try island.start(initial: initial)
             islandActive = true
             engine.start()
@@ -120,13 +168,6 @@ final class SpeedMonitor {
         } catch {
             lastError = "Nie udało się uruchomić licznika: \(error.localizedDescription)"
         }
-    }
-
-    private func stopIsland() {
-        island.stop()
-        islandActive = false
-        keepAlive.stop()
-        if !uiVisible { engine.stop() }
     }
 
     private func ensureBackgroundMode() {
@@ -152,11 +193,17 @@ final class SpeedMonitor {
         if island.isActive, uiVisible { ensureBackgroundMode() }
     }
 
-    private func applyPowerMode() {
-        engine.setInterval(ProcessInfo.processInfo.isLowPowerModeEnabled ? 2 : 1)
+    /// 1 s na ekranie i dla transferu; 5 s w tle, gdy Wyspa pokazuje tylko termikę
+    /// (zmiany termiki i tak przychodzą od razu przez powiadomienie); 2 s w trybie oszczędzania energii.
+    private func updateInterval() {
+        let base: TimeInterval = ProcessInfo.processInfo.isLowPowerModeEnabled ? 2 : 1
+        let thermalOnlyInBackground = !uiVisible && displayMode == .thermal
+        engine.setInterval(thermalOnlyInBackground ? 5 : base)
     }
 
-    private func handle(_ state: SpeedAttributes.ContentState) {
+    private func handle(_ sample: SpeedAttributes.ContentState) {
+        var state = sample
+        state.mode = displayMode
         sequence += 1
         buffer.append(SpeedPoint(id: sequence, down: state.down, up: state.up))
         if buffer.count > Self.historyLength {
@@ -167,6 +214,6 @@ final class SpeedMonitor {
             reading = state
             history = buffer
         }
-        island.push(state)
+        island.push(state, overheatAlerts: overheatAlerts)
     }
 }
