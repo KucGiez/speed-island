@@ -43,6 +43,7 @@ targets:
         PRODUCT_BUNDLE_IDENTIFIER: io.github.kucgiez.speedisland
         # Logika intencji (Shared/Intents.swift) kompiluje się tylko w aplikacji, nie w widgecie.
         SWIFT_ACTIVE_COMPILATION_CONDITIONS: $(inherited) SPEEDISLAND_APP
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
     dependencies:
       - target: SpeedIslandWidget
   SpeedIslandWidget:

@@ -57,6 +57,8 @@ final class SamplingEngine: @unchecked Sendable {
     /// Najwyższa prędkość z ostatniej próbki: ogranicza odstęp, żeby liczniki się nie przekręciły.
     private var lastPeak: Double = 0
     private var lastIslandEmit: TimeInterval = -.infinity
+    /// Kopia flagi logów na kolejce silnika (bez dostępu do wątku głównego przy każdej próbce).
+    private var logging = false
 
     // MARK: - Sterowanie
 
@@ -76,6 +78,7 @@ final class SamplingEngine: @unchecked Sendable {
             timer = t
             reschedule(force: true)
             t.resume()
+            if logging { Diagnostics.engine.notice("start") }
         }
     }
 
@@ -83,6 +86,7 @@ final class SamplingEngine: @unchecked Sendable {
         queue.async { [self] in
             timer?.cancel()
             timer = nil
+            if logging { Diagnostics.engine.notice("stop") }
         }
     }
 
@@ -93,6 +97,12 @@ final class SamplingEngine: @unchecked Sendable {
             let screenOn = policy.screenOff && !newPolicy.screenOff
             let becameVisible = !policy.uiVisible && newPolicy.uiVisible
             policy = newPolicy
+            if logging {
+                Diagnostics.engine.notice("""
+                    polityka: ekran=\(newPolicy.uiVisible) blokada=\(newPolicy.locked) \
+                    zgaszony=\(newPolicy.screenOff) tryb=\(newPolicy.mode.rawValue)
+                    """)
+            }
             // Po zapaleniu ekranu, odblokowaniu i otwarciu aplikacji: nowy punkt odniesienia
             // i prawdziwa prędkość z 1 s, zamiast średniej z całej przerwy.
             if timer != nil, unlocked || screenOn || becameVisible {
@@ -125,6 +135,10 @@ final class SamplingEngine: @unchecked Sendable {
             lastIslandKey = nil
             lastIslandEmit = -.infinity
         }
+    }
+
+    func setLogging(_ enabled: Bool) {
+        queue.async { [self] in logging = enabled }
     }
 
     // MARK: - Rytm
@@ -168,6 +182,13 @@ final class SamplingEngine: @unchecked Sendable {
         let seconds = desiredInterval()
         guard force || seconds != scheduledInterval else { return }
         scheduledInterval = seconds
+        if logging {
+            Diagnostics.engine.notice("""
+                rytm: \(seconds, format: .fixed(precision: 0)) s, \
+                pierwsza próbka za \(firstFireIn ?? seconds, format: .fixed(precision: 0)) s, \
+                bezczynność=\(self.idleStreak), szczyt=\(Int(self.lastPeak / 1024)) KB/s
+                """)
+        }
         // Tolerancja pozwala systemowi łączyć wybudzenia z innymi: 10% na ekranie, 25% w tle.
         let tolerance = policy.uiVisible ? 0.10 : 0.25
         timer.schedule(
@@ -184,6 +205,7 @@ final class SamplingEngine: @unchecked Sendable {
         upTotal &+= bytes.tx
         lastUptime = ProcessInfo.processInfo.systemUptime
         lastIslandEmit = -.infinity
+        if logging { Diagnostics.engine.notice("nowy punkt odniesienia po przerwie") }
     }
 
     // MARK: - Próbka
@@ -223,6 +245,12 @@ final class SamplingEngine: @unchecked Sendable {
         if islandDue {
             lastIslandKey = key
             lastIslandEmit = now
+            if logging {
+                Diagnostics.engine.notice("""
+                    Wyspa: \(heartbeatDue ? "heartbeat" : "zmiana", privacy: .public) ↓\(Int(down / 1024)) KB/s \
+                    ↑\(Int(up / 1024)) KB/s termika=\(state.thermal)
+                    """)
+            }
         }
 
         reschedule()

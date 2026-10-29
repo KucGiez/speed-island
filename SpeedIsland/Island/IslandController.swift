@@ -39,6 +39,9 @@ final class IslandController {
             Task { await extra.end(nil, dismissalPolicy: .immediate) }
         }
         attach(first)
+        if Diagnostics.enabled {
+            Diagnostics.island.notice("przejęto istniejącą aktywność, nadmiarowych: \(running.count - 1)")
+        }
     }
 
     func start(initial: SpeedAttributes.ContentState, staleAfter: TimeInterval) throws {
@@ -51,6 +54,7 @@ final class IslandController {
             pushType: nil
         )
         attach(created)
+        if Diagnostics.enabled { Diagnostics.island.notice("start aktywności") }
     }
 
     /// Wysyła aktualizację; przy wejściu na 🔥/💀 dołącza alarm (rozwinięcie Wyspy).
@@ -60,6 +64,9 @@ final class IslandController {
         let alert = overheatAlerts ? overheatAlert(for: state.thermal) : nil
         let newContent = content(state)
         enqueue { await activity.update(newContent, alertConfiguration: alert) }
+        if Diagnostics.enabled, alert != nil {
+            Diagnostics.island.notice("alarm przegrzania, termika=\(state.thermal)")
+        }
     }
 
     /// Zmienia tryb od razu, na ostatnich znanych danych (bez czekania na kolejną próbkę).
@@ -70,6 +77,7 @@ final class IslandController {
         state.mode = mode
         let newContent = content(state)
         enqueue { await activity.update(newContent) }
+        if Diagnostics.enabled { Diagnostics.island.notice("tryb=\(mode.rawValue)") }
     }
 
     func stop() {
@@ -77,6 +85,7 @@ final class IslandController {
         detach()
         // Po zaległych aktualizacjach, żeby żadna nie przyszła już po zakończeniu.
         enqueue { await current.end(nil, dismissalPolicy: .immediate) }
+        if Diagnostics.enabled { Diagnostics.island.notice("koniec aktywności (użytkownik w aplikacji)") }
     }
 
     private func enqueue(_ work: @escaping @MainActor () async -> Void) {
@@ -139,6 +148,11 @@ final class IslandController {
     private func finish(_ ended: Activity<SpeedAttributes>, _ reason: EndReason) {
         guard activity?.id == ended.id else { return }
         detach()
+        if Diagnostics.enabled {
+            Diagnostics.island.notice("""
+                koniec aktywności: \(reason == .dismissedByUser ? "zamknięta przez użytkownika" : "zakończona przez system", privacy: .public)
+                """)
+        }
         onEnd?(reason)
     }
 

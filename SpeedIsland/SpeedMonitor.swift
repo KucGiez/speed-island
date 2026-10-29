@@ -22,6 +22,7 @@ final class SpeedMonitor {
         static let displayMode = "displayMode"
         static let overheatAlerts = "overheatAlerts"
         static let screenSignal = "screenSignal"
+        static let diagnostics = "diagnostics"
     }
 
     private(set) var reading = SpeedAttributes.ContentState.zero
@@ -36,6 +37,8 @@ final class SpeedMonitor {
     private(set) var screenSignal = true
     /// Czy sygnał przyszedł choć raz w tej sesji (diagnostyka: działa na tej wersji iOS?).
     private(set) var screenSignalSeen = false
+    /// Logi diagnostyczne (Console.app na Macu), domyślnie wyłączone.
+    private(set) var diagnostics = false
 
     @ObservationIgnored private let engine = SamplingEngine()
     @ObservationIgnored private let island = IslandController()
@@ -59,6 +62,9 @@ final class SpeedMonitor {
         displayMode = (defaults.object(forKey: Keys.displayMode) as? Int).flatMap(DisplayMode.init(rawValue:)) ?? .both
         overheatAlerts = (defaults.object(forKey: Keys.overheatAlerts) as? Bool) ?? true
         screenSignal = (defaults.object(forKey: Keys.screenSignal) as? Bool) ?? true
+        diagnostics = defaults.bool(forKey: Keys.diagnostics)
+        Diagnostics.enabled = diagnostics
+        engine.setLogging(diagnostics)
         reading.mode = displayMode
         locationStatus = keepAlive.status
 
@@ -90,9 +96,15 @@ final class SpeedMonitor {
                 }
             })
         }
-        observe(.NSProcessInfoPowerStateDidChange) { $0.engine.powerStateChanged() }
+        observe(.NSProcessInfoPowerStateDidChange) {
+            $0.log("tryb oszczędzania energii: \(ProcessInfo.processInfo.isLowPowerModeEnabled)")
+            $0.engine.powerStateChanged()
+        }
         // Zmiana termiki trafia na Wyspę od razu, także przy rzadkim próbkowaniu.
-        observe(ProcessInfo.thermalStateDidChangeNotification) { $0.engine.sampleNow() }
+        observe(ProcessInfo.thermalStateDidChangeNotification) {
+            $0.log("termika: \(ProcessInfo.processInfo.thermalState.rawValue)")
+            $0.engine.sampleNow()
+        }
         // Zablokowany telefon (z kodem) = ekran zwykle wyłączony: rzadsze próbkowanie.
         observe(UIApplication.protectedDataWillBecomeUnavailableNotification) { $0.setLocked(true) }
         observe(UIApplication.protectedDataDidBecomeAvailableNotification) { $0.setLocked(false) }
@@ -177,16 +189,26 @@ final class SpeedMonitor {
         applyPolicy()
     }
 
+    func setDiagnostics(_ enabled: Bool) {
+        diagnostics = enabled
+        defaults.set(enabled, forKey: Keys.diagnostics)
+        Diagnostics.enabled = enabled
+        engine.setLogging(enabled)
+        if enabled { log("logi diagnostyczne włączone") }
+    }
+
     // MARK: - Wewnętrzne
 
     private func setLocked(_ value: Bool) {
         locked = value
+        log(value ? "telefon zablokowany" : "telefon odblokowany")
         applyPolicy()
     }
 
     private func screenChanged(off: Bool) {
         screenSignalSeen = true
         screenOff = off
+        log(off ? "ekran zgaszony (sygnał nieoficjalny)" : "ekran zapalony (sygnał nieoficjalny)")
         applyPolicy()
     }
 
@@ -218,6 +240,7 @@ final class SpeedMonitor {
             ensureBackgroundMode()
         } catch {
             lastError = "Nie udało się uruchomić licznika: \(error.localizedDescription)"
+            log("błąd startu aktywności: \(String(describing: error))")
         }
     }
 
@@ -227,6 +250,7 @@ final class SpeedMonitor {
             keepAlive.requestAuthorization()
         case .authorizedWhenInUse, .authorizedAlways:
             keepAlive.start()
+            log("praca w tle: start")
         default:
             break
         }
@@ -236,11 +260,13 @@ final class SpeedMonitor {
         if reason == .dismissedByUser { wantsIsland = false }
         islandActive = false
         keepAlive.stop()
+        log("praca w tle: stop")
         if !uiVisible { engine.stop() }
     }
 
     private func authorizationChanged(_ status: CLAuthorizationStatus) {
         locationStatus = status
+        log("zgoda na lokalizację: \(status.rawValue)")
         if island.isActive, uiVisible { ensureBackgroundMode() }
     }
 
@@ -257,5 +283,12 @@ final class SpeedMonitor {
         if output.islandDue {
             island.push(output.state, staleAfter: output.staleAfter, overheatAlerts: overheatAlerts)
         }
+    }
+
+    /// Wpis w logach diagnostycznych; przy wyłączonych logach tylko sprawdzenie flagi.
+    private func log(_ message: @autoclosure () -> String) {
+        guard diagnostics else { return }
+        let text = message()
+        Diagnostics.system.notice("\(text, privacy: .public)")
     }
 }

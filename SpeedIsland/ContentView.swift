@@ -224,6 +224,19 @@ private struct IslandCard: View {
                     }
                 }
 
+                Toggle(isOn: Binding(
+                    get: { monitor.diagnostics },
+                    set: { monitor.setDiagnostics($0) }
+                )) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Label("Logi diagnostyczne", systemImage: "ladybug")
+                            .font(.subheadline)
+                        Text("Do testów: Console.app na Macu, filtr „speedisland”. Tylko liczby i stany, bez danych osobowych.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+
                 backgroundStatus
 
                 if !monitor.activitiesEnabled {

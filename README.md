@@ -69,6 +69,20 @@ Zgodnie z dokumentacją Apple („Reducing your app's battery use”, „Respond
 
 **Pomiar u siebie:** Xcode → Debug navigator → Energy Impact (aplikacja uruchomiona na iPhonie), Instruments → Power Profiler, Ustawienia → Bateria.
 
+## Logi diagnostyczne (opcja)
+
+Domyślnie wyłączone; włącza się je przełącznikiem **„Logi diagnostyczne”** w aplikacji. Gdy są wyłączone, aplikacja niczego nie zapisuje.
+
+Podgląd: Mac → **Console.app** → wybierz iPhone'a → w wyszukiwarce `subsystem:speedisland` → *Start*. Kategorie:
+
+| Kategoria | Co widać |
+|---|---|
+| `engine` | start/stop pomiaru, zmiany rytmu (odstęp, bezczynność, szczyt ruchu), każda aktualizacja Wyspy (zmiana czy heartbeat) |
+| `island` | start, przejęcie i koniec Live Activity, zmiana trybu, alarm przegrzania |
+| `system` | blokada i odblokowanie, zgaszony i zapalony ekran (sygnał nieoficjalny), termika, tryb oszczędzania, zgoda na lokalizację, praca w tle |
+
+Wpisy zawierają tylko liczby i stany, bez danych osobowych i bez lokalizacji. Po testach wyłącz logi.
+
 ## Instalacja na Macu (zalecana)
 
 1. `brew install xcodegen`
