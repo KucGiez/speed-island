@@ -48,13 +48,23 @@ extension SpeedAttributes.ContentState {
     /// To, co faktycznie widać w kompakcie i widoku minimalnym w danym trybie.
     /// Zmiana klucza = aktualizacja Live Activity; reszta (CPU, sumy) odświeża się z heartbeatem.
     /// Wejście na 🔥/💀 zmienia klucz w każdym trybie, żeby alarm przegrzania zadziałał zawsze.
-    var islandKey: String {
-        let speeds = "\(formatSpeedDisplay(down))|\(formatSpeedDisplay(up))"
+    var islandKey: IslandKey {
         let alarm = isHot ? thermal : 0
         switch mode {
-        case .transfer: return "T|\(speeds)|\(alarm)"
-        case .thermal: return "C|\(thermal)"
-        case .both: return "B|\(speeds)|\(thermal)"
+        case .transfer:
+            return IslandKey(mode: mode, down: SpeedBucket(down), up: SpeedBucket(up), thermal: alarm)
+        case .thermal:
+            return IslandKey(mode: mode, down: nil, up: nil, thermal: thermal)
+        case .both:
+            return IslandKey(mode: mode, down: SpeedBucket(down), up: SpeedBucket(up), thermal: thermal)
         }
     }
+}
+
+/// Porównanie bez tekstu i alokacji, wykonywane przy każdym pomiarze.
+struct IslandKey: Hashable, Sendable {
+    let mode: DisplayMode
+    let down: SpeedBucket?
+    let up: SpeedBucket?
+    let thermal: Int
 }

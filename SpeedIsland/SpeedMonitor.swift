@@ -61,7 +61,6 @@ final class SpeedMonitor {
         screenSignal = (defaults.object(forKey: Keys.screenSignal) as? Bool) ?? true
         reading.mode = displayMode
         locationStatus = keepAlive.status
-        locked = !UIApplication.shared.isProtectedDataAvailable
 
         engine.handler = { [weak self] output in
             Task { @MainActor in self?.handle(output) }

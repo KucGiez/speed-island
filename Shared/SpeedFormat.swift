@@ -3,18 +3,46 @@ import SwiftUI
 private let kibi = 1024.0
 private let mebi = 1024.0 * 1024.0
 
-/// Prędkość tak, jak widać ją na Wyspie i ekranie blokady:
+/// Prędkość zaokrąglona tak, jak widać ją na Wyspie i ekranie blokady:
 /// - poniżej 1 KB/s „0” (szum: powiadomienia push, keep-alive),
-/// - do 100 KB/s co 1 KB, potem co 10 KB, od 1 MB/s z jednym miejscem po przecinku, od 10 MB/s bez.
+/// - do 100 KB/s co 1 KB, potem co 10 KB, od 1 MB/s co 0,1 MB, od 10 MB/s co 1 MB.
 /// Mniej różnych wartości oznacza mniej aktualizacji Live Activity przy stałym ruchu.
+/// Liczba całkowita, bez tekstu i formatowania: tanie porównanie przy każdym pomiarze.
+struct SpeedBucket: Hashable, Sendable {
+    /// KB/s albo dziesiąte części MB/s (gdy `megabytes`).
+    let value: Int
+    let megabytes: Bool
+
+    init(_ bytesPerSecond: Double) {
+        let bytes = max(0, bytesPerSecond)
+        let kb = bytes / kibi
+        let tensOfKB = Int((kb / 10).rounded()) * 10
+        if kb < 1 {
+            value = 0
+            megabytes = false
+        } else if kb < 100 {
+            value = Int(kb.rounded())
+            megabytes = false
+        } else if tensOfKB < 1000 {
+            value = tensOfKB
+            megabytes = false
+        } else {
+            let tenths = Int((bytes / mebi * 10).rounded())
+            // Od 10 MB/s pełne megabajty (zapis w dziesiątych, zaokrąglony do 10).
+            value = tenths < 100 ? tenths : (tenths + 5) / 10 * 10
+            megabytes = true
+        }
+    }
+}
+
+/// Liczba i jednostka do wyświetlenia, np. ("84", "KB/s"), ("1,4", "MB/s"), ("23", "MB/s").
 func displaySpeed(_ bytesPerSecond: Double) -> (number: String, unit: String) {
-    let kb = max(0, bytesPerSecond) / kibi
-    if kb < 1 { return ("0", "KB/s") }
-    if kb < 100 { return ("\(Int(kb.rounded()))", "KB/s") }
-    let tens = Int((kb / 10).rounded()) * 10
-    if tens < 1000 { return ("\(tens)", "KB/s") }
-    let mb = max(0, bytesPerSecond) / mebi
-    return (mb.formatted(.number.precision(.fractionLength(mb < 10 ? 1 : 0))), "MB/s")
+    let bucket = SpeedBucket(bytesPerSecond)
+    guard bucket.megabytes else { return ("\(bucket.value)", "KB/s") }
+    if bucket.value < 100 {
+        return ((Double(bucket.value) / 10).formatted(.number.precision(.fractionLength(1))), "MB/s")
+    }
+    return ("\(bucket.value / 10)", "MB/s")
 }
 
 /// „84 KB/s” w tym samym zaokrągleniu co Wyspa.

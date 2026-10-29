@@ -44,15 +44,17 @@ Zgodnie z dokumentacją Apple („Reducing your app's battery use”, „Respond
 |---|---|
 | Transfer / Oba, odblokowany, ruch w sieci | 1 s |
 | Transfer / Oba, odblokowany, 5 próbek bez ruchu (< 1 KB/s) | 3 s (ruch przywraca 1 s) |
-| Transfer / Oba, telefon zablokowany (ekran zwykle wyłączony) | 10 s; odblokowanie od razu odświeża |
-| Ekran zgaszony (opcja „Oszczędzaj przy zgaszonym ekranie”, nieoficjalny sygnał) | 120 s, każdy tryb; zapalenie ekranu od razu odświeża |
+| Transfer / Oba, telefon zablokowany (ekran zwykle wyłączony) | 10 s; po odblokowaniu świeży pomiar z 1 s |
+| Ekran zgaszony (opcja „Oszczędzaj przy zgaszonym ekranie”, nieoficjalny sygnał) | 120 s, każdy tryb; po zapaleniu świeży pomiar z 1 s |
+| Duży ruch przy rzadkim próbkowaniu (np. nocna kopia iCloud) | skrócony tak, by między próbkami przeszło najwyżej 1 GB (liczniki systemu mają 4 GB) |
 | Tylko Termika | 30 s (zablokowany: 60 s); zmiana termiki przychodzi zdarzeniem natychmiast |
 | Tryb oszczędzania energii | ×2 |
 | Stan termiczny 🔥/💀 (zalecenie Apple: mniej odświeżania ekranu) | ×2 |
 
 **Aktualizacje Wyspy:**
 - Aktualizacja idzie tylko wtedy, gdy zmieni się to, co widać w danym trybie. CPU i sumy nie wchodzą do klucza zmian: odświeżają się z heartbeatem co 30 s (60 s przy blokadzie).
-- Wartości są zaokrąglane jak na Wyspie: poniżej 1 KB/s pokazuje się „0”, do 100 KB/s co 1 KB, potem co 10 KB. Przy stałym ruchu jest więc mniej zmian, a szum (push, keep-alive) nie rusza licznika.
+- Wartości są zaokrąglane jak na Wyspie: poniżej 1 KB/s pokazuje się „0”, do 100 KB/s co 1 KB, potem co 10 KB, od 1 MB/s co 0,1 MB, od 10 MB/s co 1 MB. Przy stałym ruchu jest więc mniej zmian, a szum (push, keep-alive) nie rusza licznika. Porównanie odbywa się na liczbach, bez tworzenia tekstu przy każdym pomiarze.
+- Aktualizacje Wyspy idą jedna po drugiej, więc starsza wartość nigdy nie nadpisze nowszej.
 - Wątek główny budzi się tylko wtedy, gdy jest coś do pokazania.
 - CPU jest mierzone tylko na ekranie i przy heartbeacie: w tle wynik to średnia z całego okna.
 - Gdy aktualizacje ustaną (np. system zamknął aplikację), po 2,5 × heartbeat widok pokazuje „Wstrzymane”.
@@ -61,7 +63,7 @@ Zgodnie z dokumentacją Apple („Reducing your app's battery use”, „Respond
 
 **Pozostałe:**
 - Lokalizacja: dokładność 3 km (bez GPS), maksymalny filtr odległości, wyłączana razem z Wyspą. Alternatywa `CLLocationUpdate` wstrzymuje się w bezruchu, a wtedy system uśpiłby aplikację i licznik.
-- Pomiar sieci: `getifaddrs` (liczniki jądra) bez uprawnień i bez ruchu. Liczone są tylko interfejsy fizyczne (`en*`, `pdp_ip*`); VPN, AirDrop i hotspot są pomijane. Obsłużone są przepełnienie i reset liczników 32-bitowych.
+- Pomiar sieci: `getifaddrs` (liczniki jądra) bez uprawnień i bez ruchu. Liczone są tylko interfejsy fizyczne (`en*`, `pdp_ip*`); VPN, AirDrop i hotspot są pomijane. Obsłużone są przepełnienie i reset liczników 32-bitowych. Po przerwie (zgaszony ekran, blokada) ruch z przerwy trafia do sum, a prędkość jest mierzona od nowa.
 - Timer na kolejce `utility` z tolerancją 10% na ekranie i 25% w tle, dzięki czemu system łączy wybudzenia.
 - Bez włączonej Wyspy w tle nie działa nic.
 

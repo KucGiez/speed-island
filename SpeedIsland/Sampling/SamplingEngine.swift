@@ -38,6 +38,9 @@ final class SamplingEngine: @unchecked Sendable {
     private static let idleThreshold = 1024.0
     /// Tyle bezczynnych próbek z rzędu przełącza na rzadsze próbkowanie.
     private static let idleSamplesForBackoff = 5
+    /// Liczniki interfejsów są 32-bitowe (przekręcają się co 4 GiB), a przyrost powyżej 2 GiB
+    /// NetworkSampler uznaje za reset. Między próbkami nie może więc przejść więcej niż 1 GiB.
+    private static let wrapSafeBytes = 1024.0 * 1024 * 1024
 
     private let queue = DispatchQueue(label: "speedisland.sampling", qos: .utility)
     private var timer: DispatchSourceTimer?
@@ -50,7 +53,9 @@ final class SamplingEngine: @unchecked Sendable {
     private var downTotal: UInt64 = 0
     private var upTotal: UInt64 = 0
     private var idleStreak = 0
-    private var lastIslandKey = ""
+    private var lastIslandKey: IslandKey?
+    /// Najwyższa prędkość z ostatniej próbki: ogranicza odstęp, żeby liczniki się nie przekręciły.
+    private var lastPeak: Double = 0
     private var lastIslandEmit: TimeInterval = -.infinity
 
     // MARK: - Sterowanie
@@ -88,9 +93,14 @@ final class SamplingEngine: @unchecked Sendable {
             let screenOn = policy.screenOff && !newPolicy.screenOff
             let becameVisible = !policy.uiVisible && newPolicy.uiVisible
             policy = newPolicy
-            reschedule()
-            // Po zapaleniu ekranu, odblokowaniu i otwarciu aplikacji Wyspa i ekran mają od razu świeże dane.
-            if timer != nil, unlocked || screenOn || becameVisible { tick() }
+            // Po zapaleniu ekranu, odblokowaniu i otwarciu aplikacji: nowy punkt odniesienia
+            // i prawdziwa prędkość z 1 s, zamiast średniej z całej przerwy.
+            if timer != nil, unlocked || screenOn || becameVisible {
+                rebaseline()
+                reschedule(force: true, firstFireIn: 1)
+            } else {
+                reschedule()
+            }
         }
     }
 
@@ -112,7 +122,7 @@ final class SamplingEngine: @unchecked Sendable {
         queue.async { [self] in
             downTotal = 0
             upTotal = 0
-            lastIslandKey = ""
+            lastIslandKey = nil
             lastIslandEmit = -.infinity
         }
     }
@@ -145,10 +155,15 @@ final class SamplingEngine: @unchecked Sendable {
         if !policy.uiVisible, info.thermalState.rawValue >= ProcessInfo.ThermalState.serious.rawValue {
             seconds *= 2
         }
+        // Duży ruch przy rzadkim próbkowaniu (np. nocna kopia iCloud przy zgaszonym ekranie):
+        // skróć odstęp, żeby liczniki nie przekręciły się między próbkami.
+        if lastPeak > 0 {
+            seconds = min(seconds, max(1, (Self.wrapSafeBytes / lastPeak).rounded(.down)))
+        }
         return seconds
     }
 
-    private func reschedule(force: Bool = false) {
+    private func reschedule(force: Bool = false, firstFireIn: TimeInterval? = nil) {
         guard let timer else { return }
         let seconds = desiredInterval()
         guard force || seconds != scheduledInterval else { return }
@@ -156,10 +171,19 @@ final class SamplingEngine: @unchecked Sendable {
         // Tolerancja pozwala systemowi łączyć wybudzenia z innymi: 10% na ekranie, 25% w tle.
         let tolerance = policy.uiVisible ? 0.10 : 0.25
         timer.schedule(
-            deadline: .now() + seconds,
+            deadline: .now() + (firstFireIn ?? seconds),
             repeating: seconds,
             leeway: .milliseconds(Int(seconds * 1000 * tolerance))
         )
+    }
+
+    /// Dolicza ruch z przerwy do sum i zaczyna nowe okno pomiaru; następna próbka trafia na Wyspę.
+    private func rebaseline() {
+        let bytes = network.sample()
+        downTotal &+= bytes.rx
+        upTotal &+= bytes.tx
+        lastUptime = ProcessInfo.processInfo.systemUptime
+        lastIslandEmit = -.infinity
     }
 
     // MARK: - Próbka
@@ -176,6 +200,7 @@ final class SamplingEngine: @unchecked Sendable {
         let down = Double(bytes.rx) / elapsed
         let up = Double(bytes.tx) / elapsed
         idleStreak = down < Self.idleThreshold && up < Self.idleThreshold ? idleStreak + 1 : 0
+        lastPeak = max(down, up)
 
         let heartbeatDue = now - lastIslandEmit >= heartbeat
         // CPU tylko wtedy, gdy ktoś je zobaczy; w tle wynik to średnia z całego okna heartbeatu.

@@ -24,6 +24,9 @@ final class IslandController {
     /// Najwyższy poziom termiczny, o którym już zaalarmowano w bieżącym epizodzie grzania.
     private var alertedLevel = 0
     private var lastAlert: TimeInterval = -.infinity
+    /// Ostatnia wysłana aktualizacja. Kolejna czeka na nią, więc kolejność jest zachowana
+    /// i starsza wartość nigdy nie nadpisze nowszej.
+    private var lastUpdate: Task<Void, Never>?
 
     /// Przejmuje aktywność, która przetrwała zamknięcie aplikacji; nadmiarowe kończy.
     func adoptExisting() {
@@ -56,13 +59,7 @@ final class IslandController {
         self.staleAfter = staleAfter
         let alert = overheatAlerts ? overheatAlert(for: state.thermal) : nil
         let newContent = content(state)
-        Task {
-            if let alert {
-                await activity.update(newContent, alertConfiguration: alert)
-            } else {
-                await activity.update(newContent)
-            }
-        }
+        enqueue { await activity.update(newContent, alertConfiguration: alert) }
     }
 
     /// Zmienia tryb od razu, na ostatnich znanych danych (bez czekania na kolejną próbkę).
@@ -72,13 +69,22 @@ final class IslandController {
         guard state.mode != mode else { return }
         state.mode = mode
         let newContent = content(state)
-        Task { await activity.update(newContent) }
+        enqueue { await activity.update(newContent) }
     }
 
     func stop() {
         guard let current = activity else { return }
         detach()
-        Task { await current.end(nil, dismissalPolicy: .immediate) }
+        // Po zaległych aktualizacjach, żeby żadna nie przyszła już po zakończeniu.
+        enqueue { await current.end(nil, dismissalPolicy: .immediate) }
+    }
+
+    private func enqueue(_ work: @escaping @MainActor () async -> Void) {
+        let previous = lastUpdate
+        lastUpdate = Task {
+            await previous?.value
+            await work()
+        }
     }
 
     // MARK: - Wewnętrzne
