@@ -36,10 +36,33 @@ Termika: ❄️ OK, 🌴 ciepło, 🔥 gorąco, 💀 krytycznie.
 
 ## Wydajność i energia
 
-- Próbkowanie raz na sekundę (co 2 s w trybie oszczędzania energii) na osobnej kolejce `utility` z 10% tolerancją timera, dzięki czemu system łączy wybudzenia. W tle, gdy Wyspa pokazuje tylko termikę, próbka jest co 5 s, a zmiana stanu termicznego trafia na Wyspę natychmiast (powiadomienie systemowe).
-- Pomiar sieci: `getifaddrs` (liczniki jądra) bez uprawnień i bez ruchu. Liczone są tylko interfejsy fizyczne (`en*`, `pdp_ip*`), a VPN, AirDrop i hotspot są pomijane, żeby nic nie liczyło się podwójnie. Obsłużone są przepełnienie liczników 32-bitowych i ich reset.
-- Wyspa dostaje aktualizację **tylko wtedy, gdy zmieni się wyświetlany tekst**, plus sygnał podtrzymania co 15 s. Przy bezczynnej sieci to 4 aktualizacje na minutę zamiast 60.
-- Gdy aplikacja jest w tle, interfejs nie jest przerysowywany. Bez włączonej Wyspy w tle nie działa nic.
+Zgodnie z dokumentacją Apple („Reducing your app's battery use”, „Responding to power notifications”, „Accessing the device's location efficiently”): wybudzaj się tylko wtedy, gdy wynik ktoś zobaczy, aktualizuj Wyspę tylko przy nowej treści i reaguj na zdarzenia zamiast odpytywać.
+
+**Rytm próbkowania w tle** (gdy aplikacja jest na ekranie, zawsze 1 s):
+
+| Sytuacja | Odstęp |
+|---|---|
+| Transfer / Oba, odblokowany, ruch w sieci | 1 s |
+| Transfer / Oba, odblokowany, 5 próbek bez ruchu (< 1 KB/s) | 3 s (ruch przywraca 1 s) |
+| Transfer / Oba, telefon zablokowany (ekran zwykle wyłączony) | 10 s; odblokowanie od razu odświeża |
+| Tylko Termika | 30 s (zablokowany: 60 s); zmiana termiki przychodzi zdarzeniem natychmiast |
+| Tryb oszczędzania energii | ×2 |
+| Stan termiczny 🔥/💀 (zalecenie Apple: mniej odświeżania ekranu) | ×2 |
+
+**Aktualizacje Wyspy:**
+- Aktualizacja idzie tylko wtedy, gdy zmieni się to, co widać w danym trybie. CPU i sumy nie wchodzą do klucza zmian: odświeżają się z heartbeatem co 30 s (60 s przy blokadzie).
+- Wartości są zaokrąglane jak na Wyspie: poniżej 1 KB/s pokazuje się „0”, do 100 KB/s co 1 KB, potem co 10 KB. Przy stałym ruchu jest więc mniej zmian, a szum (push, keep-alive) nie rusza licznika.
+- Wątek główny budzi się tylko wtedy, gdy jest coś do pokazania.
+- CPU jest mierzone tylko na ekranie i przy heartbeacie: w tle wynik to średnia z całego okna.
+- Gdy aktualizacje ustaną (np. system zamknął aplikację), po 2,5 × heartbeat widok pokazuje „Wstrzymane”.
+
+**Pozostałe:**
+- Lokalizacja: dokładność 3 km (bez GPS), maksymalny filtr odległości, wyłączana razem z Wyspą. Alternatywa `CLLocationUpdate` wstrzymuje się w bezruchu, a wtedy system uśpiłby aplikację i licznik.
+- Pomiar sieci: `getifaddrs` (liczniki jądra) bez uprawnień i bez ruchu. Liczone są tylko interfejsy fizyczne (`en*`, `pdp_ip*`); VPN, AirDrop i hotspot są pomijane. Obsłużone są przepełnienie i reset liczników 32-bitowych.
+- Timer na kolejce `utility` z tolerancją 10% na ekranie i 25% w tle, dzięki czemu system łączy wybudzenia.
+- Bez włączonej Wyspy w tle nie działa nic.
+
+**Pomiar u siebie:** Xcode → Debug navigator → Energy Impact (aplikacja uruchomiona na iPhonie), Instruments → Power Profiler, Ustawienia → Bateria.
 
 ## Instalacja na Macu (zalecana)
 

@@ -210,7 +210,7 @@ private struct SingleSlotView: View {
 
 /// Opis dla VoiceOver: kompakt i widok minimalny to jedna informacja.
 private func accessibilitySummary(_ s: SpeedAttributes.ContentState, isStale: Bool) -> String {
-    let speeds = "Pobieranie \(formatSpeedFull(s.down)), wysyłanie \(formatSpeedFull(s.up))"
+    let speeds = "Pobieranie \(formatSpeedDisplay(s.down)), wysyłanie \(formatSpeedDisplay(s.up))"
     let thermal = "termika: \(thermalLabel(s.thermal))"
     let summary: String = switch s.mode {
     case .transfer: speeds
@@ -227,7 +227,7 @@ private struct SpeedLabel: View {
     let tint: Color
 
     var body: some View {
-        let parts = speedCompactParts(value)
+        let parts = displaySpeed(value)
         HStack(alignment: .firstTextBaseline, spacing: 2) {
             Image(systemName: symbol)
                 .font(.system(size: 10, weight: .bold))
@@ -308,7 +308,7 @@ private struct ExpandedSpeed: View {
             Label(title, systemImage: symbol)
                 .font(.caption2.weight(.medium))
                 .foregroundStyle(tint)
-            Text(formatSpeedFull(value))
+            Text(formatSpeedDisplay(value))
                 .font(.system(.title3, design: .rounded).weight(.semibold).monospacedDigit())
                 .contentTransition(.numericText(value: value))
                 .lineLimit(1)

@@ -1,21 +1,57 @@
 import Foundation
 
-/// Próbkuje sieć i CPU na własnej kolejce (QoS utility), nigdy na wątku głównym.
+/// Próbkuje sieć, CPU i termikę na własnej kolejce (QoS utility) i decyduje,
+/// kiedy obudzić wątek główny oraz kiedy Wyspa naprawdę potrzebuje aktualizacji.
+///
+/// Zasady (Apple: „Reducing your app's battery use”, „Responding to power notifications”):
+/// - wybudzaj się tylko tak często, jak wymaga tego to, co widać,
+/// - aktualizuj Live Activity tylko przy nowej treści, a „świeżość” podtrzymuj rzadkim heartbeatem,
+/// - w trybie oszczędzania energii i przy wysokiej temperaturze ogranicz odświeżanie.
+///
 /// Cały stan jest ograniczony do `queue`, stąd `@unchecked Sendable`.
 final class SamplingEngine: @unchecked Sendable {
-    typealias Handler = @Sendable (SpeedAttributes.ContentState) -> Void
+    /// Okoliczności, od których zależy rytm próbkowania (ustawia SpeedMonitor).
+    struct Policy: Equatable, Sendable {
+        /// Aplikacja na ekranie: wykres i liczby co 1 s.
+        var uiVisible = false
+        /// Urządzenie zablokowane (dane chronione niedostępne): ekran zwykle wyłączony.
+        var locked = false
+        var mode: DisplayMode = .both
+    }
+
+    struct Output: Sendable {
+        let state: SpeedAttributes.ContentState
+        /// Wyspa wymaga aktualizacji: zmieniła się widoczna treść albo minął heartbeat.
+        let islandDue: Bool
+        /// Po jakim czasie bez aktualizacji widget ma pokazać „Wstrzymane”.
+        let staleAfter: TimeInterval
+    }
+
+    typealias Handler = @Sendable (Output) -> Void
 
     /// Ustawiane raz, przed pierwszym `start()`.
     var handler: Handler?
 
+    /// Poniżej tej prędkości (w obu kierunkach) sieć uznajemy za bezczynną.
+    private static let idleThreshold = 1024.0
+    /// Tyle bezczynnych próbek z rzędu przełącza na rzadsze próbkowanie.
+    private static let idleSamplesForBackoff = 5
+
     private let queue = DispatchQueue(label: "speedisland.sampling", qos: .utility)
     private var timer: DispatchSourceTimer?
-    private var interval: TimeInterval = 1
+    private var scheduledInterval: TimeInterval = 0
+    private var policy = Policy()
     private var network = NetworkSampler()
     private var cpu = CPULoadSampler()
+    private var lastCPU: Double?
     private var lastUptime: TimeInterval = 0
     private var downTotal: UInt64 = 0
     private var upTotal: UInt64 = 0
+    private var idleStreak = 0
+    private var lastIslandKey = ""
+    private var lastIslandEmit: TimeInterval = -.infinity
+
+    // MARK: - Sterowanie
 
     /// Startuje próbkowanie; wywołanie przy działającym silniku nic nie robi.
     func start() {
@@ -26,12 +62,13 @@ final class SamplingEngine: @unchecked Sendable {
             _ = network.sample()
             _ = cpu.sample()
             lastUptime = ProcessInfo.processInfo.systemUptime
+            idleStreak = 0
 
             let t = DispatchSource.makeTimerSource(queue: queue)
             t.setEventHandler { [weak self] in self?.tick() }
-            schedule(t)
-            t.resume()
             timer = t
+            reschedule(force: true)
+            t.resume()
         }
     }
 
@@ -42,20 +79,21 @@ final class SamplingEngine: @unchecked Sendable {
         }
     }
 
-    /// Zmienia odstęp próbkowania w locie (np. 2 s w trybie oszczędzania energii).
-    func setInterval(_ seconds: TimeInterval) {
+    func setPolicy(_ newPolicy: Policy) {
         queue.async { [self] in
-            guard interval != seconds else { return }
-            interval = seconds
-            if let timer { schedule(timer) }
+            guard newPolicy != policy else { return }
+            let unlocked = policy.locked && !newPolicy.locked
+            let becameVisible = !policy.uiVisible && newPolicy.uiVisible
+            policy = newPolicy
+            reschedule()
+            // Po odblokowaniu i po otwarciu aplikacji Wyspa i ekran mają od razu świeże dane.
+            if timer != nil, unlocked || becameVisible { tick() }
         }
     }
 
-    func resetTotals() {
-        queue.async { [self] in
-            downTotal = 0
-            upTotal = 0
-        }
+    /// Zmiana trybu oszczędzania energii: przelicz rytm.
+    func powerStateChanged() {
+        queue.async { [self] in reschedule() }
     }
 
     /// Natychmiastowa próbka poza harmonogramem (np. po zmianie stanu termicznego).
@@ -66,34 +104,101 @@ final class SamplingEngine: @unchecked Sendable {
         }
     }
 
-    /// 10% tolerancji pozwala systemowi łączyć wybudzenia z innymi (oszczędność energii).
-    private func schedule(_ t: DispatchSourceTimer) {
-        t.schedule(
-            deadline: .now() + interval,
-            repeating: interval,
-            leeway: .milliseconds(Int(interval * 100))
+    /// Nowa sesja Wyspy: sumy od zera i pierwsza próbka idzie na Wyspę bez względu na klucz.
+    func beginIslandSession() {
+        queue.async { [self] in
+            downTotal = 0
+            upTotal = 0
+            lastIslandKey = ""
+            lastIslandEmit = -.infinity
+        }
+    }
+
+    // MARK: - Rytm
+
+    /// Heartbeat podtrzymuje „świeżość” Wyspy i odświeża CPU oraz sumy, które nie wchodzą do klucza.
+    private var heartbeat: TimeInterval { policy.locked ? 60 : 30 }
+
+    private func desiredInterval() -> TimeInterval {
+        var seconds: TimeInterval
+        if policy.uiVisible {
+            seconds = 1
+        } else if policy.mode == .thermal {
+            // Termika przychodzi zdarzeniem (thermalStateDidChange); timer tylko podtrzymuje Wyspę.
+            seconds = heartbeat
+        } else if policy.locked {
+            seconds = 10
+        } else {
+            seconds = idleStreak >= Self.idleSamplesForBackoff ? 3 : 1
+        }
+        let info = ProcessInfo.processInfo
+        if info.isLowPowerModeEnabled { seconds *= 2 }
+        if !policy.uiVisible, info.thermalState.rawValue >= ProcessInfo.ThermalState.serious.rawValue {
+            seconds *= 2
+        }
+        return seconds
+    }
+
+    private func reschedule(force: Bool = false) {
+        guard let timer else { return }
+        let seconds = desiredInterval()
+        guard force || seconds != scheduledInterval else { return }
+        scheduledInterval = seconds
+        // Tolerancja pozwala systemowi łączyć wybudzenia z innymi: 10% na ekranie, 25% w tle.
+        let tolerance = policy.uiVisible ? 0.10 : 0.25
+        timer.schedule(
+            deadline: .now() + seconds,
+            repeating: seconds,
+            leeway: .milliseconds(Int(seconds * 1000 * tolerance))
         )
     }
 
+    // MARK: - Próbka
+
     private func tick() {
         let now = ProcessInfo.processInfo.systemUptime
-        // Prędkość liczona z faktycznie upłyniętego czasu: po uśpieniu procesu wyjdzie średnia, nie skok.
+        // Prędkość z faktycznie upłyniętego czasu: przy rzadkim próbkowaniu wychodzi średnia, nie skok.
         let elapsed = max(now - lastUptime, 0.05)
         lastUptime = now
 
         let bytes = network.sample()
         downTotal &+= bytes.rx
         upTotal &+= bytes.tx
+        let down = Double(bytes.rx) / elapsed
+        let up = Double(bytes.tx) / elapsed
+        idleStreak = down < Self.idleThreshold && up < Self.idleThreshold ? idleStreak + 1 : 0
+
+        let heartbeatDue = now - lastIslandEmit >= heartbeat
+        // CPU tylko wtedy, gdy ktoś je zobaczy; w tle wynik to średnia z całego okna heartbeatu.
+        if policy.uiVisible || heartbeatDue {
+            lastCPU = cpu.sample() ?? lastCPU
+        }
 
         let state = SpeedAttributes.ContentState(
-            down: Double(bytes.rx) / elapsed,
-            up: Double(bytes.tx) / elapsed,
-            cpu: cpu.sample(),
+            down: down,
+            up: up,
+            cpu: lastCPU,
             thermal: ProcessInfo.processInfo.thermalState.rawValue,
             downTotal: downTotal,
             upTotal: upTotal,
-            mode: .both // tryb nadaje SpeedMonitor
+            mode: policy.mode
         )
-        handler?(state)
+
+        let key = state.islandKey
+        let islandDue = heartbeatDue || key != lastIslandKey
+        if islandDue {
+            lastIslandKey = key
+            lastIslandEmit = now
+        }
+
+        reschedule()
+
+        // Wątek główny budzimy tylko wtedy, gdy jest coś do pokazania.
+        guard islandDue || policy.uiVisible else { return }
+        handler?(Output(
+            state: state,
+            islandDue: islandDue,
+            staleAfter: max(heartbeat, scheduledInterval) * 2.5
+        ))
     }
 }
