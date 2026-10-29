@@ -51,6 +51,16 @@ func thermalLabel(_ raw: Int) -> String {
     }
 }
 
+/// Ikona poziomu termicznego: ❄️ OK, 🌴 ciepło, 🔥 gorąco, 💀 krytycznie.
+func thermalIcon(_ raw: Int) -> String {
+    switch raw {
+    case ..<1: return "❄️"
+    case 1: return "🌴"
+    case 2: return "🔥"
+    default: return "💀"
+    }
+}
+
 func thermalColor(_ raw: Int) -> Color {
     switch raw {
     case ..<1: return .green

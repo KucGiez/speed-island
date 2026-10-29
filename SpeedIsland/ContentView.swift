@@ -132,7 +132,7 @@ private struct StatsCard: View {
                     Stat(title: "CPU", value: formatCPU(reading.cpu), symbol: "cpu", tint: .blue)
                     Stat(
                         title: "Termika",
-                        value: thermalLabel(reading.thermal),
+                        value: "\(thermalIcon(reading.thermal)) \(thermalLabel(reading.thermal))",
                         symbol: "thermometer.medium",
                         tint: thermalColor(reading.thermal)
                     )

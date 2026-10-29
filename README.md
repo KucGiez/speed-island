@@ -8,14 +8,14 @@ Licznik transferu (pobieranie/wysyłanie), obciążenia CPU i stanu termicznego 
 |---|---|
 | Wyspa, widok kompaktowy | `↓ 84 KB/s` po lewej, `↑ 12 KB/s` po prawej |
 | Wyspa, widok minimalny | większa z prędkości, np. `1,4M` |
-| Wyspa rozwinięta / ekran blokady | pełne prędkości, CPU %, stan termiczny, sumy sesji |
+| Wyspa rozwinięta / ekran blokady | pełne prędkości, CPU %, ikona termiki, sumy sesji |
 | Aplikacja | to samo plus wykres z ostatniej minuty |
 
 Gdy proces zostanie zatrzymany, widget po 30 s pokazuje **„Wstrzymane – otwórz aplikację”** zamiast nieaktualnych liczb.
 
 ## Ograniczenia iOS (nie do obejścia)
 
-- **Temperatura w °C jest niedostępna** dla aplikacji. Pokazujemy `ProcessInfo.thermalState` (OK / Ciepło / Gorąco / Krytycznie).
+- **Temperatura w °C jest niedostępna** dla aplikacji. Pokazujemy `ProcessInfo.thermalState` jako ikonę: ❄️ OK, 🌴 ciepło, 🔥 gorąco, 💀 krytycznie.
 - **Live Activity żyje maksymalnie 8 h.** Potem iOS ją kończy, a po otwarciu aplikacji licznik startuje sam.
 - **Praca w tle wymaga zgody na lokalizację „Podczas używania”.** Bez niej iOS usypia aplikację kilka sekund po wyjściu i Wyspa zamarza. Używany jest najtańszy tryb (dokładność 3 km, bez GPS), a współrzędne są ignorowane. iOS pokazuje wtedy niebieski wskaźnik lokalizacji.
 - Wymaga iPhone'a z Dynamiczną Wyspą (14 Pro i nowsze). Na starszych licznik jest tylko na ekranie blokady. Minimalny system: iOS 17.

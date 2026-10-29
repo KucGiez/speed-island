@@ -106,8 +106,7 @@ private struct DetailsRow: View {
                     .foregroundStyle(Color.secondary)
             } else {
                 Label(formatCPU(state.cpu), systemImage: "cpu")
-                Label(thermalLabel(state.thermal), systemImage: "thermometer.medium")
-                    .foregroundStyle(thermalColor(state.thermal))
+                Text(thermalIcon(state.thermal))
                 Spacer(minLength: 0)
                 Text("↓ \(formatBytes(state.downTotal))  ↑ \(formatBytes(state.upTotal))")
                     .foregroundStyle(Color.secondary)
