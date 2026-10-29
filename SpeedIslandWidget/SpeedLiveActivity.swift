@@ -37,12 +37,18 @@ struct SpeedLiveActivity: Widget {
             } compactLeading: {
                 CompactLeading(state: state)
                     .dimmed(stale)
+                    .accessibilityElement(children: .ignore)
+                    .accessibilityLabel(accessibilitySummary(state, isStale: stale))
             } compactTrailing: {
+                // Kompakt to jedna informacja po obu stronach kamery: opis jest w części wiodącej.
                 CompactTrailing(state: state)
                     .dimmed(stale)
+                    .accessibilityHidden(true)
             } minimal: {
-                SingleSlotView(state: state)
+                MinimalView(state: state)
                     .dimmed(stale)
+                    .accessibilityElement(children: .ignore)
+                    .accessibilityLabel(accessibilitySummary(state, isStale: stale))
             }
             .keylineTint(state.isHot ? thermalColor(state.thermal) : Color.green)
         }
@@ -75,11 +81,15 @@ private struct LimitedWidthReader27<Content: View>: View {
     var body: some View { content(limited) }
 }
 
-/// Pełna szerokość (lewa strona kamery):
-/// - Transfer: `↓ 84 KB/s`; przy „jednej stronie” stos `↓84K / ↑12K`
-/// - Termika: `❄️`
-/// - Oba: stos `↓84K / ↑12K`; przy „jednej stronie” `❄️` + stos
-/// Zwężona: jedno pole mieszczące się w kółku 28 pt.
+// Jak iOS rozdziela Wyspę (HIG, Live Activities → Specifications; iOS 27):
+// - nasza aktywność jest jedyna  → kompakt: 52,33–62,33 × 36,67 pt na każdą stronę kamery,
+// - obok aktywności innych aplikacji → widok minimalny: owal 36,67–45 × 36,67 pt,
+// - poziomo / iPhone 18 Pro z 2+ aktywnościami / iPhone Duo → zwężenie: 28 × 28 pt, tylko strona wiodąca.
+// Aplikacja nie wie, ile aktywności działa; widzi tylko, który widok rysuje i flagę zwężenia.
+// Dlatego konsolidacja jest automatyczna: im mniej miejsca przydzieli system, tym bardziej zwarty układ.
+
+/// Kompakt, lewa strona kamery: Transfer `↓ 84 KB/s`, Termika `❄️`, Oba `↓84K` nad `↑12K`.
+/// Zwężony: jedno pole w kółku 28 pt.
 private struct CompactLeading: View {
     let state: SpeedAttributes.ContentState
 
@@ -90,39 +100,25 @@ private struct CompactLeading: View {
             } else {
                 switch state.mode {
                 case .transfer:
-                    if state.oneSide {
-                        SpeedStack(state: state)
-                    } else {
-                        SpeedLabel(symbol: "arrow.down", value: state.down, tint: .green)
-                    }
+                    SpeedLabel(symbol: "arrow.down", value: state.down, tint: .green)
                 case .thermal:
                     ThermalIcon(raw: state.thermal, size: 17)
                 case .both:
-                    if state.oneSide {
-                        HStack(spacing: 5) {
-                            ThermalIcon(raw: state.thermal, size: 17)
-                            SpeedStack(state: state)
-                        }
-                    } else {
-                        SpeedStack(state: state)
-                    }
+                    SpeedStack(state: state, fontSize: 12)
                 }
             }
         }
     }
 }
 
-/// Pełna szerokość (prawa strona kamery, przy baterii):
-/// - Transfer: `↑ 12 KB/s`; przy „jednej stronie” pusto
-/// - Termika: `OK`
-/// - Oba: `❄️`; przy „jednej stronie” pusto
-/// Pusty widok system ukrywa, więc Wyspa rośnie tylko w lewo.
+/// Kompakt, prawa strona kamery (przy baterii): Transfer `↑ 12 KB/s`, Termika `OK`, Oba `❄️`.
+/// Zwężony: pusty widok, który system ukrywa (zalecenie HIG dla 28 pt).
 private struct CompactTrailing: View {
     let state: SpeedAttributes.ContentState
 
     var body: some View {
         LimitedWidthReader { limited in
-            if limited || (state.oneSide && state.mode != .thermal) {
+            if limited {
                 EmptyView()
             } else {
                 switch state.mode {
@@ -142,14 +138,32 @@ private struct CompactTrailing: View {
     }
 }
 
-/// Oba kierunki jeden pod drugim: dwie linie po 12 pt mieszczą się w wysokości kompaktu (~37 pt).
-private struct SpeedStack: View {
+/// Widok minimalny (obok aktywności innych aplikacji): owal do 45 × 36,67 pt mieści
+/// oba kierunki jeden pod drugim. Termika zajmuje to miejsce w trybie Termika
+/// i w trybie Oba przy 🔥/💀. Zwężony (28 pt): jedno pole.
+private struct MinimalView: View {
     let state: SpeedAttributes.ContentState
 
     var body: some View {
+        LimitedWidthReader { limited in
+            if limited || state.singleSlot == .thermal {
+                SingleSlotView(state: state)
+            } else {
+                SpeedStack(state: state, fontSize: 11)
+            }
+        }
+    }
+}
+
+/// Oba kierunki jeden pod drugim: dwie linie mieszczą się w wysokości 36,67 pt.
+private struct SpeedStack: View {
+    let state: SpeedAttributes.ContentState
+    let fontSize: CGFloat
+
+    var body: some View {
         VStack(alignment: .leading, spacing: -1) {
-            StackLine(symbol: "arrow.down", value: state.down, tint: .green)
-            StackLine(symbol: "arrow.up", value: state.up, tint: .orange)
+            StackLine(symbol: "arrow.down", value: state.down, tint: .green, fontSize: fontSize)
+            StackLine(symbol: "arrow.up", value: state.up, tint: .orange, fontSize: fontSize)
         }
     }
 }
@@ -158,14 +172,15 @@ private struct StackLine: View {
     let symbol: String
     let value: Double
     let tint: Color
+    let fontSize: CGFloat
 
     var body: some View {
         HStack(alignment: .firstTextBaseline, spacing: 2) {
             Image(systemName: symbol)
-                .font(.system(size: 8, weight: .heavy))
+                .font(.system(size: fontSize * 0.65, weight: .heavy))
                 .foregroundStyle(tint)
             Text(formatSpeedMinimal(value))
-                .font(.system(size: 12, weight: .semibold, design: .rounded).monospacedDigit())
+                .font(.system(size: fontSize, weight: .semibold, design: .rounded).monospacedDigit())
                 .contentTransition(.numericText(value: value))
         }
         .lineLimit(1)
@@ -173,7 +188,7 @@ private struct StackLine: View {
     }
 }
 
-/// Jedno pole (widok minimalny obok innych aplikacji, zwężona Wyspa): ikona termiki
+/// Jedno pole w kółku 28 pt (zwężona Wyspa, termika w widoku minimalnym): ikona termiki
 /// albo przeważająca prędkość w kolorze kierunku (zielony ↓, pomarańczowy ↑).
 private struct SingleSlotView: View {
     let state: SpeedAttributes.ContentState
@@ -191,6 +206,18 @@ private struct SingleSlotView: View {
                 .minimumScaleFactor(0.5)
         }
     }
+}
+
+/// Opis dla VoiceOver: kompakt i widok minimalny to jedna informacja.
+private func accessibilitySummary(_ s: SpeedAttributes.ContentState, isStale: Bool) -> String {
+    let speeds = "Pobieranie \(formatSpeedFull(s.down)), wysyłanie \(formatSpeedFull(s.up))"
+    let thermal = "termika: \(thermalLabel(s.thermal))"
+    let summary: String = switch s.mode {
+    case .transfer: speeds
+    case .thermal: "SpeedIsland, \(thermal)"
+    case .both: "\(speeds), \(thermal)"
+    }
+    return isStale ? "\(summary). Dane wstrzymane." : summary
 }
 
 /// Strzałka + liczba + jednostka, np. „↓ 84 KB/s”.

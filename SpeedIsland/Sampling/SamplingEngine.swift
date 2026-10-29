@@ -92,8 +92,7 @@ final class SamplingEngine: @unchecked Sendable {
             thermal: ProcessInfo.processInfo.thermalState.rawValue,
             downTotal: downTotal,
             upTotal: upTotal,
-            mode: .both, // tryb i układ nadaje SpeedMonitor
-            oneSide: false
+            mode: .both // tryb nadaje SpeedMonitor
         )
         handler?(state)
     }

@@ -204,20 +204,6 @@ private struct IslandCard: View {
                 }
 
                 Toggle(isOn: Binding(
-                    get: { monitor.oneSide },
-                    set: { monitor.setOneSide($0) }
-                )) {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Label("Wszystko po jednej stronie", systemImage: "rectangle.lefthalf.inset.filled")
-                            .font(.subheadline)
-                        Text(monitor.displayMode == .both ? "❄️ ↓↑ po lewej, prawa strona pusta" : "↓↑ jeden pod drugim po lewej")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
-                }
-                .disabled(monitor.displayMode == .thermal)
-
-                Toggle(isOn: Binding(
                     get: { monitor.overheatAlerts },
                     set: { monitor.setOverheatAlerts($0) }
                 )) {

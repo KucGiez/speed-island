@@ -8,9 +8,9 @@ W aplikacji albo przyciskiem na rozwiniętej Wyspie wybierasz, co ma być widocz
 
 | Gdzie | Transfer | Termika | Oba |
 |---|---|---|---|
-| Wyspa, pełna szerokość | `↓ 84 KB/s` · `↑ 12 KB/s` | `❄️` · `OK` | `↓84K` nad `↑12K` · `❄️` |
-| Wyspa, opcja „Wszystko po jednej stronie” | `↓84K` nad `↑12K`, prawa pusta | – | `❄️` `↓84K` nad `↑12K`, prawa pusta |
-| Jedno pole: widok minimalny obok innej aplikacji, zwężona Wyspa (iOS 27) | `84K` w kolorze kierunku | `❄️` | prędkość, a przy 🔥/💀 ikona |
+| Kompakt: tylko nasza aktywność (52–62 × 37 pt na stronę) | `↓ 84 KB/s` · `↑ 12 KB/s` | `❄️` · `OK` | `↓84K` nad `↑12K` · `❄️` |
+| Widok minimalny: obok aktywności innych aplikacji (owal do 45 × 37 pt) | `↓84K` nad `↑12K` | `❄️` | `↓84K` nad `↑12K`, a przy 🔥/💀 ikona |
+| Zwężona Wyspa iOS 27: poziomo, iPhone 18 Pro z 2+ aktywnościami (28 × 28 pt) | `84K` w kolorze kierunku | `❄️` | prędkość, a przy 🔥/💀 ikona |
 | Wyspa rozwinięta, ekran blokady | prędkości, CPU, sumy | ikona, opis, CPU | wszystko |
 | Apple Watch (Smart Stack), CarPlay | ↓/↑ | ikona + CPU | ikona + ↓/↑ |
 | Pasek menu Maca | jak na Wyspie (automatycznie) | | |
@@ -19,7 +19,8 @@ Termika: ❄️ OK, 🌴 ciepło, 🔥 gorąco, 💀 krytycznie.
 
 ## Współpraca z innymi aplikacjami i systemem
 
-- **Kilka Live Activities naraz:** o tym, gdzie trafi każda aktywność, decyduje iOS. SpeedIsland w każdej pozycji pokazuje żywe dane, a nie logo. Na iOS 27 (tryb poziomy, iPhone 18 Pro z dwiema aktywnościami) widok mieści się w kółku 28 pt, a prawe pole znika zgodnie z wytycznymi Apple.
+- **Kilka Live Activities naraz:** miejsce przydziela iOS, a aplikacja nie wie, ile aktywności działa. Widzi tylko, który widok ma narysować (kompakt albo minimalny), i flagę iOS 27 `isDynamicIslandLimitedInWidth`. Dlatego układ zwęża się automatycznie: im mniej miejsca, tym bardziej zwarty widok. W każdej pozycji SpeedIsland pokazuje żywe dane, a nie logo. Wymiary pochodzą z HIG (Live Activities → Specifications).
+- **VoiceOver:** kompakt i widok minimalny mają opis słowny (prędkości i termika).
 - **Alarm przegrzania** (można wyłączyć): przy wejściu na 🔥 albo 💀 Wyspa sama się rozwija i ekran się podświetla. Działa to także wtedy, gdy główne miejsce na Wyspie zajmuje inna aplikacja. Alarm pojawia się raz na epizod i nie częściej niż co 10 minut.
 - **Przycisk na Wyspie:** zmienia widok bez otwierania aplikacji. To jedyny element interaktywny, zgodnie z wytycznymi HIG.
 - **Centrum sterowania:** kontrolka „Licznik na Wyspie” uruchamia licznik.

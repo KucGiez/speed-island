@@ -76,13 +76,12 @@ final class IslandController {
         }
     }
 
-    /// Zmienia tryb i układ od razu, na ostatnich znanych danych (bez czekania na kolejną próbkę).
-    func setPresentation(mode: DisplayMode, oneSide: Bool) {
+    /// Zmienia tryb od razu, na ostatnich znanych danych (bez czekania na kolejną próbkę).
+    func setMode(_ mode: DisplayMode) {
         guard let activity else { return }
         var state = activity.content.state
-        guard state.mode != mode || state.oneSide != oneSide else { return }
+        guard state.mode != mode else { return }
         state.mode = mode
-        state.oneSide = oneSide
         lastKey = Self.visibleKey(state)
         lastPush = ProcessInfo.processInfo.systemUptime
         let newContent = content(state)
@@ -162,6 +161,6 @@ final class IslandController {
     private static func visibleKey(_ s: SpeedAttributes.ContentState) -> String {
         let down = speedCompactParts(s.down)
         let up = speedCompactParts(s.up)
-        return "\(s.mode.rawValue)|\(s.oneSide)|\(down.number)\(down.unit)|\(up.number)\(up.unit)|\(formatCPU(s.cpu))|\(s.thermal)"
+        return "\(s.mode.rawValue)|\(down.number)\(down.unit)|\(up.number)\(up.unit)|\(formatCPU(s.cpu))|\(s.thermal)"
     }
 }
