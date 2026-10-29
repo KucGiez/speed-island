@@ -1,0 +1,13 @@
+# Generowane przez XcodeGen (`xcodegen generate`)
+*.xcodeproj/
+SpeedIsland/Info.plist
+SpeedIslandWidget/Info.plist
+
+# Xcode / build
+build/
+DerivedData/
+xcuserdata/
+*.ipa
+Payload/
+
+.DS_Store

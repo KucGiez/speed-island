@@ -1,0 +1,49 @@
+name: build
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  ipa:
+    runs-on: macos-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Wersje narzędzi
+        run: xcodebuild -version
+
+      - name: XcodeGen
+        run: |
+          brew install xcodegen
+          xcodegen generate
+
+      - name: Kompilacja (iphoneos, bez podpisu)
+        run: |
+          set -o pipefail
+          xcodebuild \
+            -project SpeedIsland.xcodeproj \
+            -scheme SpeedIsland \
+            -configuration Release \
+            -sdk iphoneos \
+            -destination 'generic/platform=iOS' \
+            -derivedDataPath build \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            build
+
+      - name: Pakowanie IPA (do podpisania w Sideloadly)
+        run: |
+          mkdir -p Payload
+          cp -R build/Build/Products/Release-iphoneos/SpeedIsland.app Payload/
+          test -d Payload/SpeedIsland.app/PlugIns/SpeedIslandWidget.appex
+          zip -qry SpeedIsland-unsigned.ipa Payload
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: SpeedIsland-unsigned-ipa
+          path: SpeedIsland-unsigned.ipa
+          if-no-files-found: error
