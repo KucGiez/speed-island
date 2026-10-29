@@ -21,6 +21,7 @@ final class SpeedMonitor {
         static let wantsIsland = "wantsIsland"
         static let displayMode = "displayMode"
         static let overheatAlerts = "overheatAlerts"
+        static let screenSignal = "screenSignal"
     }
 
     private(set) var reading = SpeedAttributes.ContentState.zero
@@ -31,6 +32,10 @@ final class SpeedMonitor {
     private(set) var lastError: String?
     private(set) var displayMode: DisplayMode = .both
     private(set) var overheatAlerts = true
+    /// Nieoficjalny sygnał zgaszonego ekranu włączony przez użytkownika.
+    private(set) var screenSignal = true
+    /// Czy sygnał przyszedł choć raz w tej sesji (diagnostyka: działa na tej wersji iOS?).
+    private(set) var screenSignalSeen = false
 
     @ObservationIgnored private let engine = SamplingEngine()
     @ObservationIgnored private let island = IslandController()
@@ -39,6 +44,8 @@ final class SpeedMonitor {
     @ObservationIgnored private var sequence = 0
     @ObservationIgnored private var uiVisible = false
     @ObservationIgnored private var locked = false
+    @ObservationIgnored private var screenOff = false
+    @ObservationIgnored private let screenMonitor = ScreenStateMonitor()
     @ObservationIgnored private var observers: [NSObjectProtocol] = []
 
     /// Czy użytkownik chce mieć licznik na Wyspie. Po limicie 8 h albo zamknięciu aplikacji
@@ -51,6 +58,7 @@ final class SpeedMonitor {
     private init() {
         displayMode = (defaults.object(forKey: Keys.displayMode) as? Int).flatMap(DisplayMode.init(rawValue:)) ?? .both
         overheatAlerts = (defaults.object(forKey: Keys.overheatAlerts) as? Bool) ?? true
+        screenSignal = (defaults.object(forKey: Keys.screenSignal) as? Bool) ?? true
         reading.mode = displayMode
         locationStatus = keepAlive.status
         locked = !UIApplication.shared.isProtectedDataAvailable
@@ -64,6 +72,10 @@ final class SpeedMonitor {
         keepAlive.onAuthorizationChange = { [weak self] status in
             self?.authorizationChanged(status)
         }
+        screenMonitor.onChange = { [weak self] off in
+            self?.screenChanged(off: off)
+        }
+        if screenSignal { screenMonitor.start() }
         observeSystem()
         applyPolicy()
     }
@@ -154,6 +166,18 @@ final class SpeedMonitor {
         defaults.set(enabled, forKey: Keys.overheatAlerts)
     }
 
+    func setScreenSignal(_ enabled: Bool) {
+        screenSignal = enabled
+        defaults.set(enabled, forKey: Keys.screenSignal)
+        if enabled {
+            screenMonitor.start()
+        } else {
+            screenMonitor.stop()
+            screenOff = false
+        }
+        applyPolicy()
+    }
+
     // MARK: - Wewnętrzne
 
     private func setLocked(_ value: Bool) {
@@ -161,8 +185,19 @@ final class SpeedMonitor {
         applyPolicy()
     }
 
+    private func screenChanged(off: Bool) {
+        screenSignalSeen = true
+        screenOff = off
+        applyPolicy()
+    }
+
     private func applyPolicy() {
-        engine.setPolicy(.init(uiVisible: uiVisible, locked: locked, mode: displayMode))
+        engine.setPolicy(.init(
+            uiVisible: uiVisible,
+            locked: locked,
+            screenOff: screenSignal && screenOff,
+            mode: displayMode
+        ))
     }
 
     private func startIsland() {

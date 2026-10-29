@@ -211,6 +211,19 @@ private struct IslandCard: View {
                         .font(.subheadline)
                 }
 
+                Toggle(isOn: Binding(
+                    get: { monitor.screenSignal },
+                    set: { monitor.setScreenSignal($0) }
+                )) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Label("Oszczędzaj przy zgaszonym ekranie", systemImage: "moon.zzz")
+                            .font(.subheadline)
+                        Text(screenSignalStatus)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+
                 backgroundStatus
 
                 if !monitor.activitiesEnabled {
@@ -256,6 +269,16 @@ private struct IslandCard: View {
             )
             settingsButton
         }
+    }
+
+    private var screenSignalStatus: String {
+        guard monitor.screenSignal else {
+            return "Wyłączone: przy zablokowanym telefonie pomiar co 10 s."
+        }
+        if monitor.screenSignalSeen {
+            return "Sygnał działa: przy zgaszonym ekranie odświeżanie co 2 min."
+        }
+        return "Nieoficjalny sygnał iOS. Zgaś i zapal ekran, żeby sprawdzić, czy działa."
     }
 
     private var settingsButton: some View {

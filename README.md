@@ -45,6 +45,7 @@ Zgodnie z dokumentacją Apple („Reducing your app's battery use”, „Respond
 | Transfer / Oba, odblokowany, ruch w sieci | 1 s |
 | Transfer / Oba, odblokowany, 5 próbek bez ruchu (< 1 KB/s) | 3 s (ruch przywraca 1 s) |
 | Transfer / Oba, telefon zablokowany (ekran zwykle wyłączony) | 10 s; odblokowanie od razu odświeża |
+| Ekran zgaszony (opcja „Oszczędzaj przy zgaszonym ekranie”, nieoficjalny sygnał) | 120 s, każdy tryb; zapalenie ekranu od razu odświeża |
 | Tylko Termika | 30 s (zablokowany: 60 s); zmiana termiki przychodzi zdarzeniem natychmiast |
 | Tryb oszczędzania energii | ×2 |
 | Stan termiczny 🔥/💀 (zalecenie Apple: mniej odświeżania ekranu) | ×2 |
@@ -55,6 +56,8 @@ Zgodnie z dokumentacją Apple („Reducing your app's battery use”, „Respond
 - Wątek główny budzi się tylko wtedy, gdy jest coś do pokazania.
 - CPU jest mierzone tylko na ekranie i przy heartbeacie: w tle wynik to średnia z całego okna.
 - Gdy aktualizacje ustaną (np. system zamknął aplikację), po 2,5 × heartbeat widok pokazuje „Wstrzymane”.
+
+**Nieoficjalny sygnał zgaszonego ekranu:** powiadomienie Darwin `com.apple.springboard.hasBlankedScreen` (publiczne API `notify_register_dispatch`, ale nazwa nie jest udokumentowana przez Apple). Działa jako dodatkowa warstwa: jeśli na danej wersji iOS sygnał nie przychodzi, obowiązuje rytm oparty na blokadzie. W aplikacji widać, czy sygnał zadziałał, i można go wyłączyć. Rytm 120 s, a nie pełne zatrzymanie, bo na ekranie Always-On licznik nadal jest widoczny i nie powinien pokazywać „Wstrzymane”. Aplikacje w App Store mogą być odrzucane za takie sygnały; przy instalacji z Xcode albo Sideloadly to nie ma znaczenia.
 
 **Pozostałe:**
 - Lokalizacja: dokładność 3 km (bez GPS), maksymalny filtr odległości, wyłączana razem z Wyspą. Alternatywa `CLLocationUpdate` wstrzymuje się w bezruchu, a wtedy system uśpiłby aplikację i licznik.

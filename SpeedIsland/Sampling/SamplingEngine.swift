@@ -16,6 +16,8 @@ final class SamplingEngine: @unchecked Sendable {
         var uiVisible = false
         /// Urządzenie zablokowane (dane chronione niedostępne): ekran zwykle wyłączony.
         var locked = false
+        /// Ekran zgaszony (nieoficjalny sygnał `hasBlankedScreen`, o ile działa i jest włączony).
+        var screenOff = false
         var mode: DisplayMode = .both
     }
 
@@ -83,11 +85,12 @@ final class SamplingEngine: @unchecked Sendable {
         queue.async { [self] in
             guard newPolicy != policy else { return }
             let unlocked = policy.locked && !newPolicy.locked
+            let screenOn = policy.screenOff && !newPolicy.screenOff
             let becameVisible = !policy.uiVisible && newPolicy.uiVisible
             policy = newPolicy
             reschedule()
-            // Po odblokowaniu i po otwarciu aplikacji Wyspa i ekran mają od razu świeże dane.
-            if timer != nil, unlocked || becameVisible { tick() }
+            // Po zapaleniu ekranu, odblokowaniu i otwarciu aplikacji Wyspa i ekran mają od razu świeże dane.
+            if timer != nil, unlocked || screenOn || becameVisible { tick() }
         }
     }
 
@@ -117,14 +120,20 @@ final class SamplingEngine: @unchecked Sendable {
     // MARK: - Rytm
 
     /// Heartbeat podtrzymuje „świeżość” Wyspy i odświeża CPU oraz sumy, które nie wchodzą do klucza.
-    private var heartbeat: TimeInterval { policy.locked ? 60 : 30 }
+    /// Przy zgaszonym ekranie 120 s: na Always-On (ekran blokady przyciemniony) Wyspa nie pokaże
+    /// „Wstrzymane”, a aplikacja budzi się 30 razy na godzinę zamiast 360.
+    private var heartbeat: TimeInterval {
+        if policy.screenOff { return 120 }
+        return policy.locked ? 60 : 30
+    }
 
     private func desiredInterval() -> TimeInterval {
         var seconds: TimeInterval
         if policy.uiVisible {
             seconds = 1
-        } else if policy.mode == .thermal {
-            // Termika przychodzi zdarzeniem (thermalStateDidChange); timer tylko podtrzymuje Wyspę.
+        } else if policy.mode == .thermal || policy.screenOff {
+            // Termika przychodzi zdarzeniem (thermalStateDidChange), a przy zgaszonym ekranie
+            // nikt nie patrzy na liczby: timer tylko podtrzymuje Wyspę.
             seconds = heartbeat
         } else if policy.locked {
             seconds = 10
